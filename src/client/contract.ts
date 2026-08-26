@@ -1,0 +1,283 @@
+/**
+ * The registrant-side contracts of this plugin's four slot entries: what each component is handed,
+ * and the props type it composes from the framework's shares.
+ *
+ * Each face is the whole business surface of one seat. Components never reach a cordis service —
+ * the `apply` closes over `ctx` and hands plain callbacks down, which is what lets every one of
+ * these render in a test with no context at all.
+ * @module @achasoft/dsh-advanced-sidebar/client/contract
+ */
+
+import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+// Type-only: pulls the SlotMap merges of the four slots these entries occupy.
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
+import type {
+  AdvancedSidebarSettings, AdvancedSidebarView, DeleteSessionResult, GitDiffRequest, GitDiffResult,
+  GitStatusResult, ListEntriesResult, ReadFileResult, TaskKillResult, TaskOutputResult,
+  TerminalAckResult, TerminalOpenResult, TerminalReadResult,
+} from '../host/types.ts'
+import type { OperationTarget, PanelController, PanelKind } from './controller.ts'
+import type { AdvancedSidebarKey } from './locales.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Copy of the sidebar menu, its four drawers, the delete dialog, and the settings card. */
+    advancedSidebar: AdvancedSidebarKey
+  }
+}
+
+/**
+ * This package's translator, declared once so every component types its `t` seat from the same
+ * place as the framework-synthesized one.
+ */
+export type Translate = TranslateNS<'advancedSidebar'>
+
+/** The dictionary namespace this plugin owns; also its settings namespace's camelCase twin. */
+export const LOCALE_NS = 'advancedSidebar'
+
+/** The settings namespace the Host section is registered under (kebab-case, as that grammar requires). */
+export const SETTINGS_NS = 'advanced-sidebar'
+
+/** The Remote namespace, read as `ctx.remote.advancedSidebar.…`. */
+export const REMOTE_NS = 'advancedSidebar'
+
+/**
+ * Everything both menu seats need. One face for two registrations, because the sidebar foot and the
+ * session header offer exactly the same operations — only the trigger's geometry differs.
+ */
+export interface MenuInjected {
+  /** Registrant-private reactive sources the renderer binds to `use<Name>` hooks. */
+  hooks: {
+    /** Cross-registration panel state; the menu writes it and the drawer reads it. */
+    sidebar: PanelController
+    /** The bound `advanced-sidebar` settings scope, which decides the menu's entries. */
+    settings: SettingsScope<AdvancedSidebarSettings>
+  }
+  /**
+   * Read the Host's capability view so an entry can be disabled with a reason.
+   * @param signal - cancellation for the probe.
+   * @returns the capability view.
+   */
+  describe: (signal?: AbortSignal) => Promise<AdvancedSidebarView>
+  /**
+   * Show one drawer.
+   * @param panel - which drawer.
+   * @param target - the session and directory it acts on.
+   */
+  openPanel: (panel: PanelKind, target: OperationTarget) => void
+  /**
+   * Hand one path to an Open in target.
+   * @param targetId - the target's id.
+   * @param path - the absolute Host path.
+   * @returns after the launch settled; a failure surfaces as a notice.
+   */
+  openIn: (targetId: string, path: string) => Promise<void>
+  /** Open the Web Client in a second browser window. */
+  openWindow: () => void
+  /**
+   * Archive one session.
+   * @param target - the session to hide.
+   * @returns after the registry committed; a failure surfaces as a notice.
+   */
+  archive: (target: OperationTarget) => Promise<void>
+  /**
+   * Begin Delete: ask the Host what it would do, then confirm or commit per the settings.
+   * @param target - the session to delete.
+   * @returns after the confirmation opened, or after an unconfirmed delete committed.
+   */
+  requestDelete: (target: OperationTarget) => Promise<void>
+}
+
+/** Full props of the sidebar-foot trigger. */
+export type SidebarMenuProps =
+  PropsRuntime<'sidebar.footer.action'> & PropsLocale<'advancedSidebar'> & InjectFace<MenuInjected>
+
+/** Full props of the session-header trigger. */
+export type HeaderMenuProps =
+  PropsRuntime<'conversation.session.header.utilities'> & PropsLocale<'advancedSidebar'> & InjectFace<MenuInjected>
+
+/** Everything the drawer and its confirmation dialog need. */
+export interface PanelHostInjected {
+  /** Registrant-private reactive sources the renderer binds to `use<Name>` hooks. */
+  hooks: {
+    /** Cross-registration panel state; the drawer reads it and its own controls write it. */
+    sidebar: PanelController
+    /** The bound settings scope, which decides the drawer's width and which verbs it offers. */
+    settings: SettingsScope<AdvancedSidebarSettings>
+  }
+  /**
+   * Read the Host's capability view for the drawer's own gating.
+   * @param signal - cancellation for the probe.
+   * @returns the capability view.
+   */
+  describe: (signal?: AbortSignal) => Promise<AdvancedSidebarView>
+  /**
+   * Read one workspace's git status.
+   * @param workspacePath - the directory to read.
+   * @param signal - cancellation for the reading.
+   * @returns the reading, or a classified failure.
+   */
+  gitStatus: (workspacePath: string, signal?: AbortSignal) => Promise<GitStatusResult>
+  /**
+   * Read one path's patch.
+   * @param request - the path and which index to compare.
+   * @param signal - cancellation for the reading.
+   * @returns the patch, or a classified failure.
+   */
+  gitDiff: (request: GitDiffRequest, signal?: AbortSignal) => Promise<GitDiffResult>
+  /**
+   * Allocate a panel terminal.
+   * @param workspacePath - the directory to start in.
+   * @param cols - measured column count.
+   * @param rows - measured row count.
+   * @returns the handle, or a classified failure.
+   */
+  terminalOpen: (workspacePath: string, cols: number, rows: number) => Promise<TerminalOpenResult>
+  /**
+   * Read terminal output from the offset already rendered.
+   * @param terminalId - the handle.
+   * @param fromOffset - the rendered offset.
+   * @returns the delta, or a classified failure.
+   */
+  terminalRead: (terminalId: string, fromOffset: number) => Promise<TerminalReadResult>
+  /**
+   * Send keystrokes.
+   * @param terminalId - the handle.
+   * @param data - text delivered verbatim.
+   * @returns settlement, or a classified failure.
+   */
+  terminalWrite: (terminalId: string, data: string) => Promise<TerminalAckResult>
+  /**
+   * Interrupt the terminal's foreground process group.
+   * @param terminalId - the handle.
+   * @returns settlement, or a classified failure.
+   */
+  terminalInterrupt: (terminalId: string) => Promise<TerminalAckResult>
+  /**
+   * Close a terminal.
+   * @param terminalId - the handle.
+   * @returns settlement, or a classified failure.
+   */
+  terminalClose: (terminalId: string) => Promise<TerminalAckResult>
+  /**
+   * List one directory level inside a workspace.
+   * @param path - absolute directory.
+   * @param workspacePath - the directory the listing must stay inside.
+   * @param signal - cancellation for the listing.
+   * @returns the level, or a classified failure.
+   */
+  listEntries: (path: string, workspacePath: string, signal?: AbortSignal) => Promise<ListEntriesResult>
+  /**
+   * Read one file for preview.
+   * @param path - the file.
+   * @param workspacePath - the directory it must stay inside.
+   * @param signal - cancellation for the read.
+   * @returns the preview, or a classified failure.
+   */
+  readFile: (path: string, workspacePath: string, signal?: AbortSignal) => Promise<ReadFileResult>
+  /**
+   * Open one path with the Host operating system's default application.
+   * @param path - the absolute path.
+   * @returns after the Host answered; a failure surfaces as a notice.
+   */
+  openPath: (path: string) => Promise<void>
+  /**
+   * Hand one path to an Open in target.
+   * @param targetId - the target's id.
+   * @param path - the absolute path.
+   * @returns after the launch settled.
+   */
+  openIn: (targetId: string, path: string) => Promise<void>
+  /**
+   * Stop one live background task.
+   * @param sessionId - the owning session.
+   * @param taskId - the task.
+   * @returns what the registry did, or a classified failure.
+   */
+  taskKill: (sessionId: string, taskId: string) => Promise<TaskKillResult>
+  /**
+   * Read one settled task's output.
+   * @param sessionId - the owning session.
+   * @param taskId - the task.
+   * @returns the output, or a classified failure.
+   */
+  taskOutput: (sessionId: string, taskId: string) => Promise<TaskOutputResult>
+  /**
+   * Commit the pending Delete.
+   * @param sessionId - the session to delete.
+   * @returns what was done, or a classified failure.
+   */
+  deleteSession: (sessionId: string) => Promise<DeleteSessionResult>
+  /**
+   * Copy text to the clipboard.
+   * @param text - the text to copy.
+   * @returns whether the browser accepted it.
+   */
+  copy: (text: string) => Promise<boolean>
+  /** Close the drawer. */
+  close: () => void
+  /**
+   * Dismiss one notice, ignoring a request for one already replaced.
+   * @param id - the notice to dismiss.
+   */
+  dismissNotice: (id: number) => void
+  /** Dismiss the Delete confirmation without acting. */
+  dismissDelete: () => void
+  /**
+   * Withdraw everything a session owned, because that session left the list.
+   * @param sessionId - the session that disappeared.
+   */
+  forgetSession: (sessionId: string) => void
+  /**
+   * Commit the confirmed Delete and report its outcome as a notice.
+   * @param target - the session to delete.
+   * @returns after the Host answered.
+   */
+  commitDelete: (target: OperationTarget) => Promise<void>
+  /**
+   * Report one message under the drawer.
+   * @param tone - whether the message reports a failure.
+   * @param text - the message.
+   */
+  notify: (tone: 'info' | 'error', text: string) => void
+}
+
+/** Full props of the frame-wide drawer. */
+export type PanelHostProps =
+  PropsRuntime<'shell.overlay'> & PropsLocale<'advancedSidebar'> & InjectFace<PanelHostInjected>
+
+/** Everything the settings card needs. */
+export interface SettingsCardInjected {
+  /** Registrant-private reactive sources the renderer binds to `use<Name>` hooks. */
+  hooks: {
+    /** The bound `advanced-sidebar` settings scope: resolved value, layers, revision, writability. */
+    sidebarSettings: SettingsScope<AdvancedSidebarSettings>
+  }
+  /**
+   * Read the Host's capability view for the card's status line and its Open in roster.
+   * @param signal - cancellation for the probe.
+   * @returns the capability view.
+   */
+  describe: (signal?: AbortSignal) => Promise<AdvancedSidebarView>
+  /**
+   * Store one field of the section; the bound scope owns revision fencing.
+   * @param field - the field name inside the namespace.
+   * @param value - the JSON-shaped value the control produced.
+   * @returns settlement after the write.
+   */
+  setField: (field: string, value: unknown) => Promise<void>
+  /**
+   * Clear one optional field back to the composition layer.
+   * @param field - the field name inside the namespace.
+   * @returns settlement after the write.
+   */
+  unsetField: (field: string) => Promise<void>
+}
+
+/** Full props of the plugin-settings card. */
+export type SettingsCardProps =
+  PropsRuntime<'settings.plugin.item'> & PropsLocale<'advancedSidebar'> & InjectFace<SettingsCardInjected>

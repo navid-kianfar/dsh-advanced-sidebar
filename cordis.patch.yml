@@ -1,0 +1,94 @@
+# dsh-advanced-sidebar — the sidebar's advanced operations for the DeepSeek Harness Web Client.
+#
+# Two rows, both always composed. The Host endpoint owns everything a browser structurally cannot
+# do (running git, allocating a terminal, launching an editor, removing a session log); the bare
+# package row is what serves the browser half.
+#
+# Nothing here needs a deployment-specific secret, so unlike a provider-backed plugin there is no
+# disabled row to enable: an install works as soon as it is composed. What each capability needs is
+# a Host that HAS it — git on PATH, a subprocess provider, a filesystem provider — and the menu
+# disables the entries whose capability is missing, with the reason beside them.
+#
+# Override any row from your profile's own cordis.patch.yml by `id`, restating every key the row
+# needs — a patch replaces a row's whole `config`.
+- insert:
+    - id: advanced-sidebar
+      name: '@achasoft/dsh-advanced-sidebar/host'
+      config:
+        # Where the menu appears. Both are on: the foot entry acts on the current session and is
+        # reachable while the conversation is scrolled anywhere, the header entry is where a
+        # per-session menu is conventionally looked for.
+        showInSidebar: true
+        showInSessionHeader: true
+
+        # Which entries the menu offers. Switching one off removes it from the menu; for Delete it
+        # also makes the Host refuse the operation, so a composition can take the verb away rather
+        # than merely hide it.
+        showChanges: true
+        showTerminal: true
+        showFiles: true
+        showTasks: true
+        showOpenIn: true
+        showArchive: true
+        showDelete: true
+
+        # Drawer width in pixels. Clamped to the viewport at render time, so a wide preference is
+        # safe on a narrow window.
+        panelWidth: 460
+
+        # What Delete does. `archive` hides the session and keeps its log — reversible in principle,
+        # since the durable slot is preserved. `purge` also removes the persistence backend's own
+        # per-session artifact, which nothing undoes; it requires confirmDelete, refuses a live
+        # session, and degrades to `archive` on a backend that keeps no per-session file.
+        deleteMode: archive
+        confirmDelete: true
+
+        # Background tasks. Stopping one marks the registry record reported, which suppresses the
+        # completion notice its producer would deliver to the model — correct for a human pressing
+        # Stop, and the reason this is a switch rather than an always-on verb.
+        allowTaskKill: true
+        # Output is read only after a task settles AND its completion has been reported, because
+        # `ctx.jobs.read()` consumes the same cursor the model reads from.
+        showTaskOutput: true
+
+        # git. The file cap bounds one status reading; the byte cap bounds one patch; the timeout
+        # bounds each invocation on a repository large enough to make `status` slow.
+        gitMaxFiles: 500
+        gitDiffMaxBytes: 262144
+        gitTimeoutMs: 20000
+
+        # Panel terminals. An empty shell resolves $SHELL, then the platform default. Scrollback is
+        # counted in characters; the grace period is the TERM-to-KILL window when a panel closes.
+        terminalShell: ''
+        terminalScrollback: 200000
+        maxTerminals: 4
+        terminalGraceMs: 3000
+
+        # The Files panel. Previews are bounded because the whole file crosses the wire; hidden
+        # entries are off because a source tree's dot-directories bury its actual contents.
+        filesMaxPreviewBytes: 262144
+        filesMaxEntries: 2000
+        filesShowHidden: false
+
+        # Open in targets. Each is offered only when its command resolves on the Host, and listed
+        # as unavailable when it does not — so a typo here is visible rather than silent. The
+        # operating system's own file manager is always offered and is not configured here.
+        # `args` are placed before the path.
+        editors:
+          - id: vscode
+            label: VS Code
+            command: code
+            args: []
+          - id: cursor
+            label: Cursor
+            command: cursor
+            args: []
+          - id: zed
+            label: Zed
+            command: zed
+            args: []
+
+    # The BARE package name, deliberately: the Web Client discovers a browser half by resolving
+    # `<row name>/package.json`, so a subpath row here would leave every seat silently unserved.
+    - id: advanced-sidebar-ui
+      name: '@achasoft/dsh-advanced-sidebar'

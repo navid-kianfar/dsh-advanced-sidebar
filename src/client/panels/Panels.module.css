@@ -1,0 +1,475 @@
+/* One stylesheet for the four panels.
+ *
+ * They share a toolbar, a scrolling region, and one type scale, so a person moving between them is
+ * moving between views of one surface rather than between four small applications. Every colour is
+ * a `--dsw-alias-*` token; nothing here hardcodes a literal. */
+
+.toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.toolButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.toolButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.toolButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
+}
+
+.toolButton:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
+.toolButton:disabled:hover {
+  background: transparent;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.branch {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.pill {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+/* A path reads from its tail: the interesting end of a long absolute path is the last segment. */
+.crumb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 4px 12px;
+}
+
+.split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The listing takes the upper half and the preview the lower one: the drawer is a tall column, so
+   stacking keeps both readable where a side-by-side split would give each about 200px. */
+.split > .scroll {
+  flex: 1 1 45%;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.preview {
+  flex: 1 1 55%;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px 12px;
+}
+
+.previewHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.quiet {
+  margin: 8px 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.quietInline {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  margin: 8px 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+  overflow-wrap: anywhere;
+}
+
+/* --- changed-file groups --- */
+
+.group {
+  margin-bottom: 10px;
+}
+
+.groupTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.groupCount {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-module-platform);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.fileBlock {
+  display: flex;
+  flex-direction: column;
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fileRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.fileRow:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
+}
+
+.fileRow:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
+.fileRow:disabled:hover {
+  background: transparent;
+}
+
+.fileRowOpen {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+/* A path reads from its tail here too: the basename is what identifies the row. */
+.filePath {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.fileSize {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The status letter carries git's own vocabulary, coloured by what it means rather than by which
+   index it came from: added is a success colour, deleted an error one, everything else neutral. */
+.letter {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.letterA {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.letterD {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.letterU {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+/* `!` is not a legal CSS class suffix, so the conflicted row falls through to the neutral letter
+   style; the group heading above it is what names the condition. */
+
+/* --- diffs --- */
+
+.diffBlock {
+  padding: 0 12px 10px 34px;
+}
+
+.copyButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.copyButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.diff {
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-markdown-code-block);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  /* A patch is pre-formatted text with meaningful columns: it scrolls sideways rather than wrapping,
+     inside its own box so the drawer itself never grows a horizontal bar. */
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.diffLine {
+  display: inline;
+}
+
+.diffAdd {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.diffRemove {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.diffHunk {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.diffMeta {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* --- terminal --- */
+
+.terminalBox {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  cursor: text;
+}
+
+.terminalView {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px 24px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.terminalText {
+  margin: 0;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  /* Long lines wrap rather than scroll: there is no resize verb in the terminal seam, so a shell
+     that assumed a wider screen must still be readable in the drawer's column. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The real focus target, kept out of sight: the screen above is not editable, and a caret sitting
+   in a transparent field is what lets the browser own IME composition. */
+.terminalInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  resize: none;
+}
+
+.terminalHint {
+  position: absolute;
+  right: 12px;
+  bottom: 4px;
+  margin: 0;
+  pointer-events: none;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.terminalHintOff {
+  visibility: hidden;
+}
+
+/* --- background tasks --- */
+
+.taskBlock {
+  display: flex;
+  flex-direction: column;
+}
+
+.taskRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 4px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.taskRowSettled {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.taskDisclosure {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.taskDisclosure:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.taskDisclosureSpacer {
+  flex: none;
+  width: 22px;
+}
+
+.taskDot {
+  flex: none;
+}
+
+.taskKind {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.taskLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskStatus {
+  flex: none;
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.taskDuration {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.taskOutput {
+  padding: 0 12px 10px 34px;
+}
+
+.taskOutput > .terminalText {
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-markdown-code-block);
+}
