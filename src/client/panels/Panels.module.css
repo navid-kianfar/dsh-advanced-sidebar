@@ -77,14 +77,10 @@
   white-space: nowrap;
 }
 
-/* A path reads from its tail: the interesting end of a long absolute path is the last segment. */
+/* Paths are rendered by `PathText`, which supplies the two spans below. */
 .crumb {
+  display: flex;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
 }
 
 .scroll {
@@ -216,15 +212,24 @@
   background: var(--dsw-alias-interactive-bg-active);
 }
 
-/* A path reads from its tail here too: the basename is what identifies the row. */
 .filePath {
   flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
+/* Middle truncation, in one direction: the head gives up its width first, the tail never does. A
+   `direction: rtl` box would reorder a path's separators instead of just clipping it. */
+.pathHead {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
+}
+
+.pathTail {
+  flex: none;
+  white-space: pre;
 }
 
 .fileSize {
@@ -324,60 +329,27 @@
 
 /* --- terminal --- */
 
+/* The emulator owns everything inside this box: it paints its own canvas, so the box supplies only
+   the size and the padding, and xterm's own stylesheet (inlined by the build) supplies the rest. */
 .terminalBox {
-  position: relative;
   flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  cursor: text;
-}
-
-.terminalView {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 8px 12px 24px;
+  padding: 8px 4px 8px 12px;
   background: var(--dsw-alias-bg-layer-1);
+  cursor: text;
+  overflow: hidden;
 }
 
+/* The retained text style, used by the preview log view and by task output — both plain logs
+   rather than interactive screens, so neither needs an emulator. */
 .terminalText {
   margin: 0;
   font-family: var(--ds-font-family-code);
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-primary);
-  /* Long lines wrap rather than scroll: there is no resize verb in the terminal seam, so a shell
-     that assumed a wider screen must still be readable in the drawer's column. */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-/* The real focus target, kept out of sight: the screen above is not editable, and a caret sitting
-   in a transparent field is what lets the browser own IME composition. */
-.terminalInput {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  border: 0;
-  opacity: 0;
-  resize: none;
-}
-
-.terminalHint {
-  position: absolute;
-  right: 12px;
-  bottom: 4px;
-  margin: 0;
-  pointer-events: none;
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-dimmed);
-}
-
-.terminalHintOff {
-  visibility: hidden;
 }
 
 /* --- background tasks --- */
@@ -558,4 +530,13 @@
   padding: 8px 12px 12px;
   border-top: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-1);
+}
+
+/* A directory listing shows basenames, which need no truncation trick — only a clip. */
+.entryName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

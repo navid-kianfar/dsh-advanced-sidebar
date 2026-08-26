@@ -215,6 +215,14 @@ export function mergeLaunches(
  */
 export class PreviewServers {
   private readonly records = new Map<string, Record_>()
+  /**
+   * Configurations with a start already in flight, keyed `<workspace>\u0000<name>`.
+   *
+   * `start()` awaits a file read, a path resolution, and an executable lookup before it registers
+   * anything, so two starts of one row would both find no predecessor and both spawn — leaving a
+   * dev server on the port that no `serverId` any panel holds can ever stop.
+   */
+  private readonly starting = new Set<string>()
   private closing = false
 
   /**
@@ -299,27 +307,62 @@ export class PreviewServers {
       return fail('not-startable', `"${launch.name}" names no command; it opens its url and starts nothing`)
     }
 
+    const key = `${workspace.value.processPath}\u0000${launch.name}`
+    if (this.starting.has(key)) {
+      return fail('limit-reached', `"${launch.name}" is already starting`)
+    }
+    this.starting.add(key)
+    try {
+      return await this.spawn(workspace, launch, resolved.origin, signal)
+    } finally {
+      this.starting.delete(key)
+    }
+  }
+
+  /**
+   * Start one validated configuration, holding its in-flight claim.
+   * @param workspace - the resolved workspace.
+   * @param launch - the configuration, already known to name a command.
+   * @param origin - which file it came from.
+   * @param signal - cancellation of the start.
+   * @returns the started row, or a classified failure.
+   */
+  private async spawn(
+    workspace: Extract<Awaited<ReturnType<typeof resolveWorkspace>>, { ok: true }>,
+    launch: PreviewLaunch,
+    origin: PreviewOrigin,
+    signal: AbortSignal | undefined,
+  ): Promise<PreviewStartResult> {
+    const subprocess = this.ctx.get('subprocess')
+    /* v8 ignore next -- the caller resolved the same service moments earlier. */
+    if (subprocess === undefined) return fail('no-subprocess', 'no subprocess capability is mounted')
     const settings = this.source()
+
+    // The predecessor goes FIRST, so restarting a row at the cap succeeds: counting the server this
+    // start is about to replace would make the last configured slot un-restartable.
+    const previous = this.find(workspace.value.processPath, launch.name)
+    if (previous !== undefined) await this.terminate(previous)
+
     const live = [...this.records.values()].filter(record => record.state === 'starting' || record.state === 'ready')
     if (live.length >= settings.maxPreviews) {
       return fail('limit-reached', `${String(settings.maxPreviews)} preview servers are already running`)
     }
-    // Restarting a row replaces its predecessor rather than running two servers on one port.
-    const previous = this.find(workspace.value.processPath, launch.name)
-    if (previous !== undefined) await this.terminate(previous)
 
     const directory = await this.launchDirectory(workspace, launch, signal)
     if ('failure' in directory) return directory.failure
 
     let executable: string | undefined
     try {
-      executable = await resolveCommand(this.ctx, launch.runtimeExecutable, signal)
+      executable = await resolveCommand(this.ctx, launch.runtimeExecutable ?? '', signal)
     } catch (error) {
       return fail('no-subprocess', error instanceof CommandUnavailableError ? error.message : String(error))
     }
     if (executable === undefined) {
-      return fail('unavailable', `"${launch.runtimeExecutable}" does not resolve on this Host`)
+      return fail('unavailable', `"${launch.runtimeExecutable ?? ''}" does not resolve on this Host`)
     }
+    // Re-checked after every await: `disposeAll` may have run while this start was resolving a path
+    // or scanning PATH, and a process spawned after it cleared the map would never be reaped.
+    if (this.closing) return fail('closed', 'the plugin is unloading')
 
     let handle: SubprocessHandle
     try {
@@ -350,7 +393,7 @@ export class PreviewServers {
       serverId: randomUUID(),
       name: launch.name,
       workspace: workspace.value.processPath,
-      origin: resolved.origin,
+      origin,
       handle,
       url: urlOf(launch),
       port: launch.port,
@@ -365,6 +408,12 @@ export class PreviewServers {
       abort: new AbortController(),
     }
     this.records.set(record.serverId, record)
+    // Registered and only then re-checked: an unload that raced the spawn now finds the record and
+    // takes it down, rather than losing a process that was registered a moment too late.
+    if (this.closing) {
+      await this.terminate(record)
+      return fail('closed', 'the plugin is unloading')
+    }
     this.watch(record)
     if (record.state === 'starting') void this.awaitReady(record)
     return { ok: true, server: this.viewOf(record) }
@@ -548,7 +597,10 @@ export class PreviewServers {
       /* v8 ignore next -- both streams are spawned in collect mode, so both readers exist. */
       if (reader === undefined) return { text: '', next: from }
       const read = reader.readFrom(from)
-      return { text: read.text, next: read.nextOffset }
+      // A lossy read means the requested offset fell out of the collector's window, so `text` is
+      // the WHOLE retained tail rather than a delta. Appending it would splice a megabyte of
+      // already-shown output back into the buffer; the cursor is advanced and the overlap dropped.
+      return { text: read.lossy ? '' : read.text, next: read.nextOffset }
     }
     const out = take(record.handle.collected.stdout, record.read.stdout)
     const err = take(record.handle.collected.stderr, record.read.stderr)

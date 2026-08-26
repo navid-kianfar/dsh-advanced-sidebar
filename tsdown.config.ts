@@ -13,7 +13,7 @@
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, resolve, sep } from 'node:path'
-import { isBuiltin } from 'node:module'
+import { createRequire, isBuiltin } from 'node:module'
 import type { UserConfig } from 'tsdown'
 import { transform } from 'lightningcss'
 
@@ -125,18 +125,24 @@ const browserHalf: UserConfig = {
   plugins: [{
     name: 'dsh-css-modules-inline',
     resolveId(source: string, importer: string | undefined) {
-      if (!source.endsWith('.module.css')) return null
-      const abs = importer === undefined ? source : sourceAssetPath(source, importer)
+      if (!source.endsWith('.css')) return null
+      // A dependency's own stylesheet (xterm.css) resolves through node, not against `src`.
+      const abs = source.startsWith('.')
+        ? (importer === undefined ? source : sourceAssetPath(source, importer))
+        : createRequire(import.meta.url).resolve(source)
       return CSS_VIRTUAL + abs + CSS_SUFFIX
     },
     async load(this: { addWatchFile(id: string): void }, virtualId: string) {
       if (!virtualId.startsWith(CSS_VIRTUAL)) return null
       const file = virtualId.slice(CSS_VIRTUAL.length, -CSS_SUFFIX.length)
       this.addWatchFile(file)
+      // A plain `.css` import is a whole stylesheet a dependency owns: it is injected verbatim and
+      // exports nothing, because its class names are the ones that dependency's own code writes.
+      const isModule = file.endsWith('.module.css')
       const { code, exports: cssExports } = transform({
         filename: file,
         code: await readFile(file),
-        cssModules: { pattern: '[hash]_[local]' },
+        ...isModule ? { cssModules: { pattern: '[hash]_[local]' } } : {},
         minify: true,
       })
       const classMap: Record<string, string> = {}

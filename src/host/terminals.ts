@@ -105,7 +105,11 @@ export class PanelTerminals {
       return fail('no-subprocess', 'no subprocess capability is mounted')
     }
     const settings = this.source()
-    if (this.records.size >= settings.maxTerminals) {
+    // Only LIVE terminals hold a slot. An exited shell's record is kept so the panel can still read
+    // its final output, and counting those would let a handful of finished commands lock the panel
+    // out of starting anything.
+    const live = [...this.records.values()].filter(record => record.running).length
+    if (live >= settings.maxTerminals) {
       return fail('limit-reached', `${String(settings.maxTerminals)} panel terminals are already open`)
     }
     const workspace = await resolveWorkspace(this.ctx, request.workspacePath, signal)
@@ -203,10 +207,10 @@ export class PanelTerminals {
     if (!record.running) return fail('unknown-terminal', `panel terminal ${record.id} has exited`)
     try {
       await record.handle.signalForeground(request.signal)
-    } catch (error) {
+    } catch {
       // No resolvable foreground group is the ordinary answer for a shell sitting at its prompt
-      // with nothing running; it is not a fault worth failing the request over.
-      return fail('spawn-failed', error instanceof Error ? error.message : String(error))
+      // with nothing running, and a Ctrl+C there is a no-op in every terminal. Reporting it as a
+      // failure would put an error line under a keystroke that did exactly what it should.
     }
     return { ok: true }
   }

@@ -21,13 +21,19 @@ import { useCapabilityView } from './use-capability.ts'
  */
 export function SidebarMenu(props: SidebarMenuProps) {
   const { wide, useSessions, useWorkspaces, useSettings, useSidebar, t, describe } = props
-  const settings = useSettings(snapshot => snapshot.value)
+  const bound = useSettings(snapshot => snapshot.value)
   const sessions = useSessions(state => state)
   const workspaces = useWorkspaces(state => state)
   // Subscribed so the trigger re-renders when a drawer opens; the open drawer is what its
   // `data-open` marker reports to the rest of the column.
   const openPanel = useSidebar(state => state.panel.panel)
-  const { view, refresh } = useCapabilityView(describe, settings?.showInSidebar === true)
+  // Fetched unconditionally, because the fallback below depends on it: gating the probe on the
+  // settings value would leave a client that cannot read settings with neither source.
+  const { view, refresh } = useCapabilityView(describe)
+  // The bound scope where it resolves, the Host's own copy otherwise. `ctx.settingsScope` answers
+  // `unavailable` with no value on every non-loopback Web Client, and a surface that took that as
+  // "switched off" would disappear entirely for remote access.
+  const settings = bound ?? view?.settings
 
   const current = sessions.current
   const target = useMemo(
@@ -59,10 +65,12 @@ export function SidebarMenu(props: SidebarMenuProps) {
  */
 export function HeaderMenu(props: HeaderMenuProps) {
   const { sessionId, useSessions, useWorkspaces, useSettings, t, describe } = props
-  const settings = useSettings(snapshot => snapshot.value)
+  const bound = useSettings(snapshot => snapshot.value)
   const sessions = useSessions(state => state)
   const workspaces = useWorkspaces(state => state)
-  const { view, refresh } = useCapabilityView(describe, settings?.showInSessionHeader === true)
+  const { view, refresh } = useCapabilityView(describe)
+  /** See {@link SidebarMenu}: the bound scope, or the Host's copy on a client that has no document. */
+  const settings = bound ?? view?.settings
 
   const target = useMemo(
     () => resolveTarget(sessions, workspaces, sessionId),

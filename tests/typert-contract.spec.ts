@@ -31,6 +31,47 @@ interface Descriptor {
 const descriptors = TYPERT_REMOTE.descriptors as unknown as Descriptor[]
 
 /**
+ * One complete settings section, as `describe()` carries it.
+ *
+ * Spelled out in full rather than partially: the point of the assertion is that the schema accepts
+ * every field the Host actually sends, and a fixture missing one would pass while the wire failed.
+ */
+const SECTION = {
+  showInSidebar: true,
+  showInSessionHeader: true,
+  showChanges: true,
+  showTerminal: true,
+  showFiles: true,
+  showTasks: true,
+  showOpenIn: true,
+  showArchive: true,
+  showDelete: true,
+  showPreview: true,
+  panelWidth: 460,
+  confirmDelete: true,
+  deleteMode: 'archive',
+  allowTaskKill: true,
+  showTaskOutput: true,
+  gitMaxFiles: 500,
+  gitDiffMaxBytes: 262_144,
+  gitTimeoutMs: 20_000,
+  terminalShell: '',
+  terminalScrollback: 200_000,
+  maxTerminals: 4,
+  terminalGraceMs: 3_000,
+  filesMaxPreviewBytes: 262_144,
+  filesMaxEntries: 2_000,
+  filesShowHidden: false,
+  editors: [{ id: 'vscode', label: 'VS Code', command: 'code', args: [] }],
+  previews: [{ name: 'web', runtimeExecutable: 'npm', runtimeArgs: ['run', 'dev'], port: 3_000, url: '', cwd: '' }],
+  previewsFromLaunchFile: true,
+  maxPreviews: 3,
+  previewReadyTimeoutMs: 60_000,
+  previewScrollback: 200_000,
+  previewGraceMs: 3_000,
+}
+
+/**
  * Find one descriptor.
  * @param method - the endpoint name.
  * @returns the descriptor.
@@ -130,6 +171,7 @@ describe('generated Typert contract', () => {
         preview: { available: true, running: 1 },
         openIn: [{ id: 'reveal', label: 'Finder', available: true, kind: 'reveal' }],
         deletion: { canPurge: false, mode: 'archive' },
+        settings: SECTION,
         readAt: 1,
       },
       gitDiff: { ok: true, path: 'a.ts', patch: '', binary: false, truncated: false },
@@ -193,6 +235,26 @@ describe('generated Typert contract', () => {
     for (const [method, value] of Object.entries(failures)) {
       expect(() => at(method).result.schema.parse(value), method).not.toThrow()
     }
+  })
+
+  it('keeps every settings field describe() carries', () => {
+    const parsed = at('describe').result.schema.parse({
+      git: { available: true },
+      terminal: { available: true },
+      files: { available: true },
+      tasks: { available: true, canKill: true, canReadOutput: true },
+      preview: { available: true, running: 0 },
+      openIn: [],
+      deletion: { canPurge: true, mode: 'purge' },
+      settings: SECTION,
+      readAt: 1,
+    }) as { settings: Record<string, unknown> }
+    // A stripped field is the failure this guards: zod drops unknown keys silently, so a schema
+    // that fell behind the section would hand the browser a section missing exactly the switch it
+    // was about to read.
+    expect(Object.keys(parsed.settings).sort()).toEqual(Object.keys(SECTION).sort())
+    expect(parsed.settings.editors).toEqual(SECTION.editors)
+    expect(parsed.settings.previews).toEqual(SECTION.previews)
   })
 
   it('refuses a result carrying an undeclared failure code', () => {

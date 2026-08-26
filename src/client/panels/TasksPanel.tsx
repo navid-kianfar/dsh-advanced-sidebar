@@ -17,7 +17,7 @@ import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AdvancedSidebarSettings, TaskOutputResult } from '../../host/types.ts'
 import type { Translate } from '../contract.ts'
 import { cx } from '../cx.ts'
-import { transportMessage, type PanelProps } from './shared.ts'
+import { transportMessage, type PanelProps } from './shared.tsx'
 import css from './Panels.module.css'
 
 /** Stable empty list, so a session with no tasks keeps one array identity across renders. */
@@ -28,6 +28,8 @@ const TICK_MS = 1_000
 
 /** One expanded row's output state. */
 interface OutputState {
+  /** The task's status when this answer was read; a later status invalidates it. */
+  status: JobView['status']
   /** True while the request is in flight. */
   loading: boolean
   /** The Host's answer. */
@@ -124,16 +126,16 @@ export function TasksPanel({ target, t, face, useSessions, settings }: TasksPane
     return () => { window.clearInterval(timer) }
   }, [liveCount])
 
-  const load = useCallback((taskId: string) => {
-    setOutputs(current => ({ ...current, [taskId]: { loading: true, result: undefined, error: undefined } }))
+  const load = useCallback((taskId: string, status: JobView['status']) => {
+    setOutputs(current => ({ ...current, [taskId]: { status, loading: true, result: undefined, error: undefined } }))
     taskOutput(sessionId, taskId).then(
       (result) => {
-        setOutputs(current => ({ ...current, [taskId]: { loading: false, result, error: undefined } }))
+        setOutputs(current => ({ ...current, [taskId]: { status, loading: false, result, error: undefined } }))
       },
       (reason: unknown) => {
         setOutputs(current => ({
           ...current,
-          [taskId]: { loading: false, result: undefined, error: transportMessage(reason, t) },
+          [taskId]: { status, loading: false, result: undefined, error: transportMessage(reason, t) },
         }))
       },
     )
@@ -148,7 +150,7 @@ export function TasksPanel({ target, t, face, useSessions, settings }: TasksPane
         notify('info', result.outcome === 'requested' ? t('tasks.stopped') : t('tasks.alreadyFinished'))
         // The registry marks a killed record reported, which is exactly the condition that makes
         // its output readable — so a Stop is the moment to offer it.
-        if (expanded === taskId) load(taskId)
+        if (expanded === taskId) load(taskId, 'killed')
       },
       (reason: unknown) => {
         setBusy(undefined)
@@ -181,7 +183,12 @@ export function TasksPanel({ target, t, face, useSessions, settings }: TasksPane
                     onClick={() => {
                       const next = open ? undefined : task.id
                       setExpanded(next)
-                      if (next !== undefined && outputs[task.id] === undefined) load(task.id)
+                      // Re-read when the task has MOVED since the cached answer: output withheld
+                      // from a running task becomes readable the moment it settles, and a cache
+                      // keyed only on the id would show "still running" for the rest of the session.
+                      if (next !== undefined && outputs[task.id]?.status !== task.status) {
+                        load(task.id, task.status)
+                      }
                     }}
                   >
                     {open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}

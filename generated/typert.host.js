@@ -12,7 +12,7 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_deleteSession_result$schema
   'purgeSkippedReason': z.string().readonly().optional(),
 }), z.object({
   'ok': z.literal(false).readonly(),
-  'code': z.union([z.literal("disabled"), z.literal("no-registry"), z.literal("unknown-session"), z.literal("live-session"), z.literal("archive-failed"), z.literal("remove-failed")]).readonly(),
+  'code': z.union([z.literal("disabled"), z.literal("no-registry"), z.literal("unknown-session"), z.literal("archive-failed"), z.literal("remove-failed")]).readonly(),
   'message': z.string().readonly(),
 })])
 const _achasoft_dsh_advanced_sidebar_advancedSidebar_describe_result$schema = z.object({
@@ -54,6 +54,52 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_describe_result$schema = z.
   'canPurge': z.boolean().readonly(),
   'mode': z.union([z.literal("archive"), z.literal("purge")]).readonly(),
   'reason': z.string().readonly().optional(),
+}).readonly(),
+  'settings': z.object({
+  'showInSidebar': z.boolean().readonly(),
+  'showInSessionHeader': z.boolean().readonly(),
+  'showChanges': z.boolean().readonly(),
+  'showTerminal': z.boolean().readonly(),
+  'showFiles': z.boolean().readonly(),
+  'showTasks': z.boolean().readonly(),
+  'showOpenIn': z.boolean().readonly(),
+  'showArchive': z.boolean().readonly(),
+  'showDelete': z.boolean().readonly(),
+  'showPreview': z.boolean().readonly(),
+  'panelWidth': z.number().readonly(),
+  'confirmDelete': z.boolean().readonly(),
+  'deleteMode': z.union([z.literal("archive"), z.literal("purge")]).readonly(),
+  'allowTaskKill': z.boolean().readonly(),
+  'showTaskOutput': z.boolean().readonly(),
+  'gitMaxFiles': z.number().readonly(),
+  'gitDiffMaxBytes': z.number().readonly(),
+  'gitTimeoutMs': z.number().readonly(),
+  'terminalShell': z.string().readonly(),
+  'terminalScrollback': z.number().readonly(),
+  'maxTerminals': z.number().readonly(),
+  'terminalGraceMs': z.number().readonly(),
+  'filesMaxPreviewBytes': z.number().readonly(),
+  'filesMaxEntries': z.number().readonly(),
+  'filesShowHidden': z.boolean().readonly(),
+  'editors': z.array(z.object({
+  'id': z.string().readonly(),
+  'label': z.string().readonly(),
+  'command': z.string().readonly(),
+  'args': z.array(z.string()),
+})),
+  'previews': z.array(z.object({
+  'name': z.string(),
+  'runtimeExecutable': z.string(),
+  'runtimeArgs': z.array(z.string()),
+  'port': z.number(),
+  'url': z.string(),
+  'cwd': z.string(),
+})),
+  'previewsFromLaunchFile': z.boolean().readonly(),
+  'maxPreviews': z.number().readonly(),
+  'previewReadyTimeoutMs': z.number().readonly(),
+  'previewScrollback': z.number().readonly(),
+  'previewGraceMs': z.number().readonly(),
 }).readonly(),
   'readAt': z.number().readonly(),
 })
@@ -383,7 +429,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#DeleteSessionResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_deleteSession_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":410,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":427,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/describe',
@@ -400,7 +446,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#AdvancedSidebarView',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_describe_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":214,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":230,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/gitDiff',
@@ -426,7 +472,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#GitDiffResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitDiff_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":253,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":270,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/gitStatus',
@@ -452,7 +498,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#GitStatusResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStatus_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":242,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":259,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/listEntries',
@@ -478,7 +524,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#ListEntriesResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_listEntries_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":315,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":332,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/openIn',
@@ -504,7 +550,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#OpenInResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_openIn_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":379,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":396,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/previewList',
@@ -530,7 +576,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#PreviewListResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewList_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":326,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":343,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/previewLogs',
@@ -555,7 +601,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#PreviewLogsResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewLogs_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":357,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":374,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/previewStart',
@@ -581,7 +627,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#PreviewStartResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewStart_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":337,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":354,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/previewStop',
@@ -606,7 +652,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#PreviewStopResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewStop_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":347,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":364,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/readFile',
@@ -632,7 +678,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#ReadFileResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_readFile_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":368,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":385,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/taskKill',
@@ -657,7 +703,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#TaskKillResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_taskKill_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":389,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":406,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/taskOutput',
@@ -682,7 +728,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#TaskOutputResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_taskOutput_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":399,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":416,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/terminalClose',
@@ -707,7 +753,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#TerminalAckResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_terminalClose_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":304,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":321,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/terminalOpen',
@@ -733,7 +779,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#TerminalOpenResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_terminalOpen_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":264,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":281,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/terminalRead',
@@ -758,7 +804,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#TerminalReadResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_terminalRead_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":274,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":291,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/terminalSignal',
@@ -783,7 +829,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#TerminalAckResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_terminalSignal_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":294,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":311,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/terminalWrite',
@@ -808,7 +854,7 @@ export const TYPERT = {
         typeSymbol: '../src/host/types.ts#TerminalAckResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_terminalWrite_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":284,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":301,"column":3},
     },
   ],
   model: {

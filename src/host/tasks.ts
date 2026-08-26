@@ -39,6 +39,15 @@ function isLive(snapshot: JobSnapshot): boolean {
 export class TaskController {
   /** Accumulated output per job id, so a second panel open is not an empty read. */
   private readonly collected = new Map<string, string>()
+  /**
+   * Tasks whose output has already been taken.
+   *
+   * `read()` is CONSUMING for a stream job and IDEMPOTENT for a final-output one, and the snapshot
+   * does not say which kind a job is. Appending every read would therefore duplicate a
+   * final-output job's text once per poll, so each task is drained exactly once — after settlement,
+   * when there is nothing further to come.
+   */
+  private readonly drained = new Set<string>()
 
   /**
    * @param ctx - Host context carrying the optional job registry and the agent registry.
@@ -131,6 +140,7 @@ export class TaskController {
   /** Drop retained output. Called from the service's teardown effect. */
   dispose(): void {
     this.collected.clear()
+    this.drained.clear()
   }
 
   /**
@@ -139,8 +149,10 @@ export class TaskController {
    * @param taskId - the task id.
    */
   private async absorb(sessionId: string, taskId: string): Promise<void> {
+    if (this.drained.has(taskId)) return
     const bound = this.bind(sessionId, taskId)
     if ('failure' in bound) return
+    this.drained.add(taskId)
     try {
       const read = bound.jobs.read(bound.id, bound.agent)
       if (read.text !== '') {

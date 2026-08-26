@@ -2,52 +2,60 @@
  * The Terminal panel: an interactive shell of the operator's own, in the session's working
  * directory.
  *
+ * The screen is a real terminal emulator (`@xterm/xterm`), not an approximation. That is not
+ * gold-plating: an interactive shell redraws its prompt with cursor addressing on every keystroke,
+ * and a screen model that understands only carriage returns and erase-line renders a login shell's
+ * prompt as overwritten fragments. Colour, line editing, history recall, and full-screen programs
+ * all come with the emulator; nothing here reimplements them.
+ *
  * Output arrives by polling, because an out-of-tree plugin has no host-to-client push channel: the
- * panel holds the whole-stream offset it has already rendered and asks for whatever came after it.
- * The offset is what makes a reopened panel resume the same shell mid-scrollback instead of showing
- * a blank screen, and what makes a dropped poll cost nothing but latency.
+ * panel holds the whole-stream offset it has already written into the emulator and asks for
+ * whatever came after it. The offset is what makes a reopened panel replay the retained scrollback
+ * instead of showing a blank screen, and what makes a dropped poll cost nothing but latency.
  * @module @achasoft/dsh-advanced-sidebar/client/panels/TerminalPanel
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { FitAddon } from '@xterm/addon-fit'
+import { Terminal } from '@xterm/xterm'
 import { IconRefreshOutline14, IconStopFill16, IconTrashOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import '@xterm/xterm/css/xterm.css'
 import type { TerminalReadSuccess } from '../../host/types.ts'
-import { cx } from '../cx.ts'
-import { TerminalScreen } from '../terminal-screen.ts'
-import { transportMessage, type PanelProps } from './shared.ts'
+import { transportMessage, useLatest, type PanelProps } from './shared.tsx'
 import css from './Panels.module.css'
 
 /** How often the panel asks for new output while the shell is alive. */
-const POLL_MS = 220
+const POLL_MS = 200
 
-/** Retained display lines. Well past a screen, and far short of a memory concern. */
-const SCREEN_LINES = 5_000
+/** Retained scrollback rows inside the emulator. */
+const SCROLLBACK = 5_000
 
-/** Monospace cell width used to turn the rendered box into a column count. */
-const CELL_WIDTH = 7.8
+/** The byte Ctrl+C produces; intercepted so an interrupt becomes a signal rather than data. */
+const ETX = '\u0003'
 
-/** Monospace line height used to turn the rendered box into a row count. */
-const CELL_HEIGHT = 18
-
-/** Escape, the prefix of every cursor key this panel forwards. */
-const ESC = '\u001B'
-
-/** Keys with no printable form, mapped to the bytes a terminal expects. */
-const KEYS: Readonly<Record<string, string>> = {
-  Enter: '\r',
-  Backspace: '\u007F',
-  Tab: '\t',
-  Escape: ESC,
-  ArrowUp: `${ESC}[A`,
-  ArrowDown: `${ESC}[B`,
-  ArrowRight: `${ESC}[C`,
-  ArrowLeft: `${ESC}[D`,
-  Home: `${ESC}[H`,
-  End: `${ESC}[F`,
-  Delete: `${ESC}[3~`,
-  PageUp: `${ESC}[5~`,
-  PageDown: `${ESC}[6~`,
+/**
+ * The emulator's palette, resolved from the app's own tokens.
+ *
+ * xterm paints its own canvas and cannot inherit a CSS colour, so the theme is read from the
+ * document at mount. Reading the computed value rather than naming a literal is what makes the
+ * panel follow the app's light/dark setting instead of pinning one of them.
+ * @param host - the element the terminal will be opened in.
+ * @returns the resolved theme.
+ */
+function paletteOf(host: HTMLElement): {
+  background: string; foreground: string; cursor: string; selectionBackground: string
+} {
+  const style = getComputedStyle(host)
+  const read = (name: string, fallback: string): string => {
+    const value = style.getPropertyValue(name).trim()
+    return value === '' ? fallback : value
+  }
+  return {
+    background: read('--dsw-alias-bg-layer-1', '#00000000'),
+    foreground: read('--dsw-alias-label-primary', '#e6e6e6'),
+    cursor: read('--dsw-alias-brand-primary', '#7aa2f7'),
+    selectionBackground: read('--dsw-alias-bg-multi-select', '#5a7cff4d'),
+  }
 }
 
 /** What the panel knows about its shell. */
@@ -59,7 +67,7 @@ interface Session {
 }
 
 /**
- * The shell, its output, and the keyboard.
+ * The shell, its screen, and the keyboard.
  * @param props - the target, the translator, and the drawer's face.
  * @returns the panel body.
  * @see {@link PanelProps}
@@ -67,36 +75,85 @@ interface Session {
 export function TerminalPanel({ target, t, face }: PanelProps) {
   const { terminalOpen, terminalRead, terminalWrite, terminalInterrupt, terminalClose } = face
   const directory = target.directory
+  const latest = useLatest(t)
   const [session, setSession] = useState<Session | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
   const [exit, setExit] = useState<string | undefined>(undefined)
   const [lossy, setLossy] = useState(false)
-  const [revision, setRevision] = useState(0)
   const [attempt, setAttempt] = useState(0)
-  const screen = useMemo(() => new TerminalScreen(SCREEN_LINES), [])
   const offset = useRef(0)
-  const viewRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
-  const boxRef = useRef<HTMLDivElement>(null)
+  const hostRef = useRef<HTMLDivElement>(null)
+  const termRef = useRef<Terminal | undefined>(undefined)
+  const fitRef = useRef<FitAddon | undefined>(undefined)
+  /** The size the emulator measured before the shell was started; the PTY is fixed to it. */
+  const geometry = useRef<{ cols: number; rows: number }>({ cols: 80, rows: 24 })
+
+  /** Re-measure the emulator, tolerating a host element that has no layout box yet. */
+  const refit = useCallback(() => {
+    try {
+      fitRef.current?.fit()
+    } catch {
+      // `fit()` throws while the host has no layout box — the drawer closing mid-observation, or a
+      // measurement taken before the panel is laid out. There is nothing to fit to in that state,
+      // and the next observation measures again.
+    }
+  }, [])
+
+  // The emulator is created once per mount and disposed with it. It is deliberately NOT recreated
+  // for a restart: the shell changes, the screen it draws on does not.
+  useEffect(() => {
+    const host = hostRef.current
+    if (host === null) return
+    const term = new Terminal({
+      scrollback: SCROLLBACK,
+      cursorBlink: true,
+      fontSize: 12,
+      lineHeight: 1.2,
+      fontFamily: getComputedStyle(host).getPropertyValue('--ds-font-family-code').trim() || 'monospace',
+      theme: paletteOf(host),
+    })
+    const fit = new FitAddon()
+    term.loadAddon(fit)
+    term.open(host)
+    termRef.current = term
+    fitRef.current = fit
+    refit()
+    geometry.current = { cols: term.cols, rows: term.rows }
+
+    // The emulator's own size follows the drawer, so rendered rows stay readable when the panel is
+    // resized. The SHELL's size does not follow: the subprocess seam exposes no resize verb, so a
+    // program that laid its output out for the original width keeps that layout until Restart
+    // allocates a shell at the new one.
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(refit)
+    observer?.observe(host)
+    return () => {
+      observer?.disconnect()
+      term.dispose()
+      termRef.current = undefined
+      fitRef.current = undefined
+    }
+  }, [refit])
 
   // Allocation is keyed on the directory and the restart counter, so a Restart tears the previous
-  // shell down through this effect's own cleanup rather than leaving two alive.
+  // shell down through this effect's own cleanup rather than leaving two alive. The translator is
+  // deliberately absent from the dependencies — a language switch must not kill a running shell.
   useEffect(() => {
     if (directory === undefined) return
     let live = true
     let allocated: string | undefined
-    const rect = boxRef.current?.getBoundingClientRect()
-    const cols = Math.max(20, Math.floor((rect?.width ?? 420) / CELL_WIDTH))
-    const rows = Math.max(5, Math.floor((rect?.height ?? 360) / CELL_HEIGHT))
-    screen.clear()
+    const term = termRef.current
+    refit()
+    if (term !== undefined) {
+      term.reset()
+      geometry.current = { cols: term.cols, rows: term.rows }
+    }
     offset.current = 0
     setExit(undefined)
     setLossy(false)
     setError(undefined)
     setSession(undefined)
-    setRevision(value => value + 1)
 
-    terminalOpen(directory, cols, rows).then(
+    terminalOpen(directory, geometry.current.cols, geometry.current.rows).then(
       (result) => {
         if (!result.ok) { if (live) setError(result.message); return }
         // The allocation can settle AFTER this effect was torn down — the panel closed, or the
@@ -107,7 +164,7 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
         allocated = result.terminalId
         setSession({ terminalId: result.terminalId, shell: result.shell })
       },
-      (reason: unknown) => { if (live) setError(transportMessage(reason, t)) },
+      (reason: unknown) => { if (live) setError(transportMessage(reason, latest.current)) },
     )
     return () => {
       live = false
@@ -115,7 +172,7 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
       // process alive that nothing can reach and that only plugin teardown would ever reap.
       if (allocated !== undefined) void terminalClose(allocated)
     }
-  }, [directory, attempt, screen, terminalOpen, terminalClose, t])
+  }, [directory, attempt, refit, terminalOpen, terminalClose, latest])
 
   const terminalId = session?.terminalId
   const finished = exit !== undefined
@@ -127,29 +184,32 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
     let live = true
     let timer = 0
     const settle = (read: TerminalReadSuccess): void => {
-      if (read.text !== '') {
-        screen.write(read.text)
-        setRevision(value => value + 1)
-      }
+      if (read.text !== '') termRef.current?.write(read.text)
       if (read.lossy) setLossy(true)
       offset.current = read.nextOffset
       if (!read.running) {
         setExit(read.signal === null || read.signal === undefined
-          ? t('terminal.exited', { code: read.exitCode ?? 0 })
-          : t('terminal.exitedSignal', { signal: read.signal }))
+          ? latest.current('terminal.exited', { code: read.exitCode ?? 0 })
+          : latest.current('terminal.exitedSignal', { signal: read.signal }))
       }
     }
     const tick = (): void => {
       terminalRead(terminalId, offset.current).then(
         (result) => {
           if (!live) return
-          if (result.ok) settle(result)
-          else setError(result.message)
+          if (result.ok) {
+            settle(result)
+          } else {
+            setError(result.message)
+            // A handle the Host no longer knows will never be known again — the shell was closed
+            // from elsewhere, or the plugin reloaded. Re-arming would poll a dead id forever.
+            if (result.code === 'unknown-terminal') { live = false; return }
+          }
           timer = window.setTimeout(tick, POLL_MS)
         },
         (reason: unknown) => {
           if (!live) return
-          setError(transportMessage(reason, t))
+          setError(transportMessage(reason, latest.current))
           timer = window.setTimeout(tick, POLL_MS)
         },
       )
@@ -159,40 +219,36 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
       live = false
       window.clearTimeout(timer)
     }
-  }, [terminalId, finished, screen, terminalRead, t])
-
-  // Follow the tail unless the operator has scrolled up to read something; a terminal that yanks
-  // the viewport back on every poll cannot be read while it is busy.
-  useEffect(() => {
-    const view = viewRef.current
-    if (view === null) return
-    const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 40
-    if (atBottom) view.scrollTop = view.scrollHeight
-  }, [revision])
+  }, [terminalId, finished, terminalRead, latest])
 
   const send = useCallback((data: string) => {
     if (terminalId === undefined) return
     void terminalWrite(terminalId, data).then((result) => {
       if (!result.ok) setError(result.message)
-    }, (reason: unknown) => { setError(transportMessage(reason, t)) })
-  }, [terminalId, terminalWrite, t])
+    }, (reason: unknown) => { setError(transportMessage(reason, latest.current)) })
+  }, [terminalId, terminalWrite, latest])
 
-  // Keystrokes are forwarded from a hidden textarea rather than a contenteditable screen: the
-  // browser then owns IME composition, and only committed text reaches the shell.
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.nativeEvent.isComposing) return
-    if (event.ctrlKey && event.key.toLowerCase() === 'c') {
-      event.preventDefault()
-      if (terminalId !== undefined) void terminalInterrupt(terminalId)
-      return
+  // Keystrokes go straight from the emulator to the shell. Ctrl+C is intercepted so it reaches the
+  // FOREGROUND PROCESS GROUP as a signal rather than as a byte the shell may be ignoring — which is
+  // the difference between interrupting a running command and doing nothing.
+  useEffect(() => {
+    const term = termRef.current
+    if (term === undefined || terminalId === undefined || finished) return
+    const data = term.onData((chunk) => {
+      if (chunk === ETX) {
+        void terminalInterrupt(terminalId)
+        return
+      }
+      send(chunk)
+    })
+    // Anything the emulator classifies as binary rather than text still belongs to the shell.
+    const binary = term.onBinary((chunk) => { send(chunk) })
+    return () => {
+      data.dispose()
+      binary.dispose()
     }
-    const control = KEYS[event.key]
-    if (control === undefined) return
-    event.preventDefault()
-    send(control)
-  }
+  }, [terminalId, finished, send, terminalInterrupt])
 
-  const lines = screen.snapshot()
   const idle = terminalId === undefined || finished
 
   return (
@@ -215,7 +271,7 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
           className={css.toolButton}
           aria-label={t('terminal.clear')}
           title={t('terminal.clear')}
-          onClick={() => { screen.clear(); setRevision(value => value + 1) }}
+          onClick={() => { termRef.current?.clear() }}
         >
           <IconTrashOutline16 />
         </button>
@@ -230,36 +286,16 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
         </button>
       </div>
 
+      {lossy && <p className={css.quiet}>{t('terminal.lossy')}</p>}
+      {error !== undefined && <p className={css.error}>{error}</p>}
+      {exit !== undefined && <p className={css.quiet}>{exit}</p>}
       <div
-        ref={boxRef}
+        ref={hostRef}
         className={css.terminalBox}
-        onClick={() => { inputRef.current?.focus() }}
+        aria-label={t('terminal.inputAria')}
+        onClick={() => { termRef.current?.focus() }}
         role="presentation"
-      >
-        <div ref={viewRef} className={css.terminalView}>
-          {lossy && <p className={css.quiet}>{t('terminal.lossy')}</p>}
-          <pre className={css.terminalText}>{lines.join('\n')}</pre>
-          {error !== undefined && <p className={css.error}>{error}</p>}
-          {exit !== undefined && <p className={css.quiet}>{exit}</p>}
-        </div>
-        <textarea
-          ref={inputRef}
-          className={css.terminalInput}
-          aria-label={t('terminal.inputAria')}
-          spellCheck={false}
-          autoComplete="off"
-          disabled={idle}
-          value=""
-          onKeyDown={onKeyDown}
-          onChange={(event) => {
-            // The field is deliberately always empty: every committed character is forwarded and
-            // the shell's own echo is what appears on the screen above.
-            const text = event.target.value
-            if (text !== '') send(text)
-          }}
-        />
-        <p className={cx(css.terminalHint, idle && css.terminalHintOff)}>{t('terminal.hint')}</p>
-      </div>
+      />
     </>
   )
 }

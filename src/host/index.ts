@@ -210,13 +210,13 @@ export class AdvancedSidebarService extends TypertRemoteService {
       validate: validateConfig,
     })
 
-    // Fire-and-forget on both process owners: cordis teardown is synchronous, and a panel terminal
-    // or a dev server that outlived the plugin would hold a shell or a port that nothing left can
-    // reach. Each handle's own grace escalation bounds the wait.
-    ctx.effect(() => () => {
+    // Cordis AWAITS an async disposer (`fiber.ts`: `await Promise.all(...map(runDisposable))`), so
+    // the promise is returned rather than dropped: unload then finishes only once every panel
+    // terminal and dev server this plugin started has actually exited. Each handle's own grace
+    // escalation bounds how long that takes.
+    ctx.effect(() => async () => {
       this.tasks.dispose()
-      void this.terminals.disposeAll()
-      void this.preview.disposeAll()
+      await Promise.all([this.terminals.disposeAll(), this.preview.disposeAll()])
     }, 'advanced-sidebar: panel terminals, preview servers, retained task output')
   }
 
@@ -237,6 +237,7 @@ export class AdvancedSidebarService extends TypertRemoteService {
       preview: this.preview.describe(),
       tasks: this.tasks.describe(),
       openIn: await this.launcher.describe(signal),
+      settings,
       deletion: {
         canPurge: deletion.canPurge,
         // A composition asking to purge on a backend that cannot is reported as `archive`, so the

@@ -28,7 +28,7 @@ import type { PreviewServerView, PreviewState } from '../../host/types.ts'
 import type { Translate } from '../contract.ts'
 import { cx } from '../cx.ts'
 import { TerminalScreen } from '../terminal-screen.ts'
-import { transportMessage, type PanelProps } from './shared.ts'
+import { transportMessage, useLatest, type PanelProps } from './shared.tsx'
 import css from './Panels.module.css'
 
 /** How often the panel asks for logs and state while a server is starting. */
@@ -76,6 +76,7 @@ function dotState(state: PreviewState): StateDotState | undefined {
  */
 export function PreviewPanel({ target, t, face }: PanelProps) {
   const { previewList, previewStart, previewStop, previewLogs } = face
+  const latest = useLatest(t)
   const directory = target.directory
   const [servers, setServers] = useState<readonly PreviewServerView[] | undefined>(undefined)
   const [launchFile, setLaunchFile] = useState<string | undefined>(undefined)
@@ -92,6 +93,8 @@ export function PreviewPanel({ target, t, face }: PanelProps) {
   const logs = useMemo(() => new TerminalScreen(LOG_LINES), [])
   const logOffset = useRef(0)
   const stageRef = useRef<HTMLDivElement>(null)
+  /** The server whose failure already opened the log view; a failed start opens it once, not per poll. */
+  const openedOnFailure = useRef<string | undefined>(undefined)
   const logViewRef = useRef<HTMLDivElement>(null)
   const [stage, setStage] = useState({ width: 0, height: 0 })
 
@@ -112,10 +115,12 @@ export function PreviewPanel({ target, t, face }: PanelProps) {
         // than on an empty picker the operator has to notice.
         setSelected(current => current ?? result.servers[0]?.name)
       },
-      (reason: unknown) => { if (!controller.signal.aborted) setError(transportMessage(reason, t)) },
+      (reason: unknown) => {
+        if (!controller.signal.aborted) setError(transportMessage(reason, latest.current))
+      },
     )
     return () => { controller.abort() }
-  }, [directory, generation, previewList, t])
+  }, [directory, generation, previewList, latest])
 
   const server = servers?.find(entry => entry.name === selected)
   const serverId = server?.serverId
@@ -136,7 +141,10 @@ export function PreviewPanel({ target, t, face }: PanelProps) {
     setLogRevision(value => value + 1)
   }, [serverId, logs])
 
-  const watching = serverId !== undefined && (state === 'starting' || showLogs || state === 'failed')
+  // A failed server is NOT a reason to keep polling: nothing ever moves a record out of `failed`,
+  // so including it here would re-arm the chain forever on a dead process. A start that fails is
+  // still covered — it opens the log view, and `showLogs` carries the polling through the transition.
+  const watching = serverId !== undefined && (state === 'starting' || showLogs)
   useEffect(() => {
     if (serverId === undefined || !watching) return
     let live = true
@@ -155,7 +163,12 @@ export function PreviewPanel({ target, t, face }: PanelProps) {
             // without a second endpoint and without a list refresh.
             setServers(current => current?.map(entry =>
               entry.name === result.server.name ? result.server : entry))
-            if (result.server.state === 'failed') setShowLogs(true)
+            // Once per server, not per tick: re-asserting it every poll would make the Logs
+            // toggle un-closable on a failed start.
+            if (result.server.state === 'failed' && openedOnFailure.current !== serverId) {
+              openedOnFailure.current = serverId
+              setShowLogs(true)
+            }
           } else if (result.code === 'unknown-server') {
             // The server was stopped from elsewhere; stop polling for it rather than looping on a
             // handle the Host has forgotten.
@@ -170,7 +183,7 @@ export function PreviewPanel({ target, t, face }: PanelProps) {
         },
         (reason: unknown) => {
           if (!live) return
-          setError(transportMessage(reason, t))
+          setError(transportMessage(reason, latest.current))
           timer = window.setTimeout(tick, SLOW_POLL_MS)
         },
       )
@@ -180,7 +193,7 @@ export function PreviewPanel({ target, t, face }: PanelProps) {
       live = false
       window.clearTimeout(timer)
     }
-  }, [serverId, watching, logs, previewLogs, t])
+  }, [serverId, watching, logs, previewLogs, latest])
 
   useEffect(() => {
     const view = logViewRef.current
@@ -232,9 +245,9 @@ export function PreviewPanel({ target, t, face }: PanelProps) {
         setServers(current => current?.map(entry =>
           entry.name === result.server.name ? result.server : entry))
       },
-      (reason: unknown) => { setBusy(false); setError(transportMessage(reason, t)) },
+      (reason: unknown) => { setBusy(false); setError(transportMessage(reason, latest.current)) },
     )
-  }, [directory, selected, logs, previewStart, t])
+  }, [directory, selected, logs, previewStart, latest])
 
   const stop = useCallback(() => {
     if (serverId === undefined) return
@@ -245,9 +258,9 @@ export function PreviewPanel({ target, t, face }: PanelProps) {
         if (!result.ok) { setError(result.message); return }
         setGeneration(value => value + 1)
       },
-      (reason: unknown) => { setBusy(false); setError(transportMessage(reason, t)) },
+      (reason: unknown) => { setBusy(false); setError(transportMessage(reason, latest.current)) },
     )
-  }, [serverId, previewStop, t])
+  }, [serverId, previewStop, latest])
 
   const running = state === 'starting' || state === 'ready'
   const canStart = server?.startable === true && !running && !busy

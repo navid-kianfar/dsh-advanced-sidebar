@@ -166,6 +166,16 @@ export interface AdvancedSidebarView {
     /** Why purging is unavailable, when it is. */
     readonly reason?: string
   }
+  /**
+   * The resolved settings section.
+   *
+   * Carried here because the browser cannot always read it: `ctx.settingsScope` resolves to a real
+   * document only on a loopback connection, and answers `unavailable` with no value on every remote
+   * Web Client. Without this field the whole surface would decide it was switched off and render
+   * nothing. The bound scope stays the authority where it HAS a value — it is live and writable —
+   * and this is what the surface falls back to.
+   */
+  readonly settings: AdvancedSidebarSettings
   /** Epoch ms the view was assembled, so a stale panel can say how old its facts are. */
   readonly readAt: number
 }
@@ -607,8 +617,6 @@ export type DeleteSessionFailureCode =
   | 'no-registry'
   /** Neither the live store nor persistence knows the id. */
   | 'unknown-session'
-  /** The session is live; a running conversation is stopped before it is deleted. */
-  | 'live-session'
   /** The registry refused the archive write; the message carries its error. */
   | 'archive-failed'
   /** The artifact was located but could not be removed; the message carries the filesystem error. */

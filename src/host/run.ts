@@ -41,6 +41,13 @@ export interface CommandOutcome {
   readonly timedOut: boolean
   /** True when the caller's own signal aborted the command. */
   readonly aborted: boolean
+  /**
+   * True when stdout exceeded {@link CommandSpec.maxBytes} and only its TAIL was retained.
+   *
+   * Reported rather than swallowed because it changes what the text means: a caller that then takes
+   * the head of this string is showing the middle of the real output, and would label it complete.
+   */
+  readonly stdoutLossy: boolean
 }
 
 /** No filesystem/subprocess capability, or a spawn that never produced a process. */
@@ -57,12 +64,13 @@ export class CommandUnavailableError extends Error {
 /**
  * Read one collect-mode stream in full.
  * @param reader - the stream's offset reader, present by the spawn's own disposition.
- * @returns the retained text.
+ * @returns the retained text and whether the head was dropped to fit the cap.
  */
-function drain(reader: SubprocessOutputReader | undefined): string {
+function drain(reader: SubprocessOutputReader | undefined): { text: string; lossy: boolean } {
   /* v8 ignore next -- both streams are spawned in collect mode, so both readers exist. */
-  if (reader === undefined) return ''
-  return reader.readFrom(0).text
+  if (reader === undefined) return { text: '', lossy: false }
+  const read = reader.readFrom(0)
+  return { text: read.text, lossy: read.lossy }
 }
 
 /**
@@ -127,12 +135,14 @@ export async function runCommand(
     ...spec.env === undefined ? {} : { env: spec.env },
   })
   const outcome = await handle.done
+  const stdout = drain(handle.collected.stdout)
   return {
     exitCode: outcome.exitCode,
     signal: outcome.signal,
-    stdout: drain(handle.collected.stdout),
-    stderr: drain(handle.collected.stderr),
+    stdout: stdout.text,
+    stderr: drain(handle.collected.stderr).text,
     timedOut: timeout.aborted,
     aborted: signal?.aborted === true && !timeout.aborted,
+    stdoutLossy: stdout.lossy,
   }
 }

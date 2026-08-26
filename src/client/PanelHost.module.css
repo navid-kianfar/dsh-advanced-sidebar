@@ -8,9 +8,11 @@
   top: 12px;
   right: 12px;
   bottom: 12px;
-  /* The setting decides the width, the viewport decides the ceiling: a 900px preference on a
-     narrow window must not push the drawer off screen. */
-  width: min(var(--dsh-advanced-panel-width, 420px), calc(100vw - 24px));
+  /* The setting decides the width, the viewport decides the ceiling: a 900px preference on a narrow
+     window must not push the drawer off screen, and on a phone-width one it must not become a
+     full-screen sheet with none of a modal's affordances — no scrim, no click-outside — so it keeps
+     a real margin from the left edge. */
+  width: min(var(--dsh-advanced-panel-width, 420px), calc(100vw - 72px));
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -48,18 +50,20 @@
   line-height: 22px;
 }
 
-/* A path has no spaces to break at, so it is clipped rather than allowed to wrap the header
-   into two rows; the full value stays reachable through the title attribute. */
+/* A path has no spaces to break at, so it is truncated rather than allowed to wrap the header into
+   two rows; `PathText` supplies the head and tail spans and keeps the full value in `title`. */
 .subtitle {
+  display: flex;
   margin: 0;
+  min-width: 0;
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
+  /* The no-directory branch renders a session title rather than a path, and a long one would wrap
+     the header onto three rows; both branches clip to one line. */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
 }
 
 .body {
@@ -102,11 +106,13 @@
   background: transparent;
 }
 
-/* The notice sits under the drawer's own corner so it never covers the panel it reports on. */
+/* Centred along the bottom, not tucked into the drawer's own corner: the drawer occupies the whole
+   right edge, so a notice anchored there would paint over the panel it is reporting on. */
 .notice {
   position: fixed;
-  right: 12px;
-  bottom: 12px;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
   z-index: 1;
   display: flex;
   align-items: center;

@@ -88,10 +88,15 @@ export function ActionMenu(props: ActionMenuProps) {
     if (open) refresh()
   }, [open, refresh])
 
-  // A target that disappears under an open menu (the session was archived from elsewhere) leaves
-  // every entry acting on nothing; closing is the only honest response.
+  // Only a target that DISAPPEARS closes the menu — the session was archived from elsewhere while
+  // it was open, so every entry now acts on nothing. Opening with no session is fine and stays
+  // open: each entry is disabled with "Open a session first" beside it, which is a better answer
+  // than a button that visibly does nothing.
+  const had = useRef(false)
   useEffect(() => {
-    if (open && target === undefined) setOpen(false)
+    if (target !== undefined) { had.current = true; return }
+    if (open && had.current) setOpen(false)
+    had.current = false
   }, [open, target])
 
   if (settings === undefined) return null
@@ -211,7 +216,7 @@ export function ActionMenu(props: ActionMenuProps) {
       // would be clamped against the edge and cover the trigger it belongs to.
       side={variant === 'header' ? 'bottom' : 'top'}
       getAnchorRect={anchorRect}
-      className={cx(css.menuRoot)}
+      className={cx(css.menuRoot, variant === 'sidebar-wide' && css.menuRootWide)}
       anchor={(
         <button
           ref={triggerRef}

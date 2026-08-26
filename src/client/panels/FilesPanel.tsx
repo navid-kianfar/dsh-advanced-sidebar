@@ -7,14 +7,14 @@
  * @module @achasoft/dsh-advanced-sidebar/client/panels/FilesPanel
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   IconChevronLeftOutline14, IconFolderClose16, IconRefreshOutline14, IconRightUpOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DirectoryEntryView, ListEntriesResult, ReadFileResult } from '../../host/types.ts'
 import { cx } from '../cx.ts'
 import { FileGlyph } from '../Glyphs.tsx'
-import { formatBytes, transportMessage, type PanelProps } from './shared.ts'
+import { PathText, formatBytes, transportMessage, useLatest, type PanelProps } from './shared.tsx'
 import css from './Panels.module.css'
 
 /**
@@ -25,6 +25,7 @@ import css from './Panels.module.css'
  */
 export function FilesPanel({ target, t, face }: PanelProps) {
   const { listEntries, readFile, openPath } = face
+  const latest = useLatest(t)
   const workspace = target.directory
   const [path, setPath] = useState<string | undefined>(workspace)
   const [listing, setListing] = useState<ListEntriesResult | undefined>(undefined)
@@ -33,6 +34,8 @@ export function FilesPanel({ target, t, face }: PanelProps) {
   const [selected, setSelected] = useState<string | undefined>(undefined)
   const [preview, setPreview] = useState<ReadFileResult | undefined>(undefined)
   const [previewError, setPreviewError] = useState<string | undefined>(undefined)
+  /** The preview request in flight; a slower earlier read must not overwrite a newer selection. */
+  const wanted = useRef<string | undefined>(undefined)
 
   // A directory change resets the workspace root too, because the panel can be reopened on a
   // different session without unmounting.
@@ -44,21 +47,26 @@ export function FilesPanel({ target, t, face }: PanelProps) {
     setError(undefined)
     listEntries(path, workspace, controller.signal).then(
       (next) => { if (!controller.signal.aborted) setListing(next) },
-      (reason: unknown) => { if (!controller.signal.aborted) setError(transportMessage(reason, t)) },
+      (reason: unknown) => {
+        if (!controller.signal.aborted) setError(transportMessage(reason, latest.current))
+      },
     )
     return () => { controller.abort() }
-  }, [path, workspace, generation, listEntries, t])
+  }, [path, workspace, generation, listEntries, latest])
 
   const openFile = useCallback((entry: DirectoryEntryView) => {
     if (workspace === undefined) return
     setSelected(entry.path)
     setPreview(undefined)
     setPreviewError(undefined)
+    wanted.current = entry.path
     readFile(entry.path, workspace).then(
-      (result) => { setPreview(result) },
-      (reason: unknown) => { setPreviewError(transportMessage(reason, t)) },
+      (result) => { if (wanted.current === entry.path) setPreview(result) },
+      (reason: unknown) => {
+        if (wanted.current === entry.path) setPreviewError(transportMessage(reason, latest.current))
+      },
     )
-  }, [readFile, workspace, t])
+  }, [readFile, workspace, latest])
 
   const level = listing?.ok === true ? listing : undefined
 
@@ -75,7 +83,7 @@ export function FilesPanel({ target, t, face }: PanelProps) {
         >
           <IconChevronLeftOutline14 />
         </button>
-        <span className={css.crumb} title={level?.path ?? path}>{level?.path ?? path}</span>
+        <PathText className={css.crumb} value={level?.path ?? path ?? ''} />
         <span className={css.spacer} />
         <button
           type="button"
@@ -108,7 +116,7 @@ export function FilesPanel({ target, t, face }: PanelProps) {
               disabled={entry.kind === 'other'}
             >
               {entry.kind === 'directory' ? <IconFolderClose16 /> : <FileGlyph size={16} />}
-              <span className={css.filePath}>{entry.name}</span>
+              <span className={css.entryName}>{entry.name}</span>
               {entry.size !== undefined && entry.kind === 'file' && (
                 <span className={css.fileSize}>{formatBytes(entry.size)}</span>
               )}
@@ -121,7 +129,7 @@ export function FilesPanel({ target, t, face }: PanelProps) {
           {selected === undefined && <p className={css.quiet}>{t('files.preview.pick')}</p>}
           {selected !== undefined && (
             <div className={css.previewHead}>
-              <span className={css.filePath} title={selected}>{selected}</span>
+              <PathText className={css.filePath} value={selected} />
               <button
                 type="button"
                 className={css.toolButton}

@@ -8,9 +8,10 @@
  * @module @achasoft/dsh-advanced-sidebar/host/git
  */
 
+import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { isStaged, isUnstaged, parsePorcelainV2 } from './porcelain.ts'
-import { resolveWorkspace, type PathOutcome } from './paths.ts'
+import { resolveInside, resolveWorkspace, type PathOutcome } from './paths.ts'
 import { CommandUnavailableError, resolveCommand, runCommand, type CommandOutcome } from './run.ts'
 import type {
   AdvancedSidebarSettings, CapabilityState, GitDiffRequest, GitDiffResult, GitFailure,
@@ -24,6 +25,9 @@ import type {
  * against the unquoted one a later diff request repeats.
  */
 const NUL_ARGS = ['-z'] as const
+
+/** Exit code of the synthetic outcome produced when the `git` binary does not resolve. */
+const MISSING_BINARY_EXIT = 127
 
 /** Compose one classified failure. */
 function fail(code: GitFailureCode, message: string): GitFailure {
@@ -44,6 +48,11 @@ function stderrLine(outcome: CommandOutcome): string {
 function classify(outcome: CommandOutcome): GitFailure {
   if (outcome.timedOut) return fail('timeout', 'git did not finish within gitTimeoutMs')
   if (outcome.aborted) return fail('cancelled', 'the request was abandoned before git finished')
+  // 127 is the synthetic outcome `git()` produces for an unresolvable binary; a real git never
+  // exits with it, and reporting it as `git-failed` would send a person hunting a repository fault.
+  if (outcome.exitCode === MISSING_BINARY_EXIT) {
+    return fail('no-git', 'git is not installed, or not on this Host process PATH')
+  }
   const message = stderrLine(outcome)
   if (/not a git repository/iu.test(message)) return fail('not-a-repository', message)
   return fail('git-failed', message)
@@ -114,7 +123,9 @@ export class GitReader {
 
     const parsed = parsePorcelainV2(outcome.stdout)
     const limit = this.source().gitMaxFiles
-    const truncated = parsed.changes.length > limit
+    // `stdoutLossy` means git printed more than the collector kept, so the head of the reading is
+    // gone and the list is incomplete however few rows survived parsing.
+    const truncated = outcome.stdoutLossy || parsed.changes.length > limit
     const changes = truncated ? parsed.changes.slice(0, limit) : parsed.changes
     const conflicted = changes.filter(change => change.conflicted)
     return {
@@ -146,6 +157,19 @@ export class GitReader {
     if ('failure' in prepared) return prepared.failure
     const { repository } = prepared
 
+    // The path is untrusted input at a process boundary. Every other endpoint proves containment
+    // through `ctx.fs`, and so must this one: `--no-index` makes git read an arbitrary file and
+    // return it as a patch, so an unchecked `../../../etc/passwd` would be an exfiltration route,
+    // and even the tracked forms would read outside the repository the caller asked about.
+    const root = await resolveWorkspace(this.ctx, repository.root, signal)
+    if (!root.ok) return fail(root.rejection.code, root.rejection.message)
+    // `resolve`, not `join`: joining a root with an ABSOLUTE path re-roots it under the repository
+    // (`join('/repo', '/etc/hosts')` is `/repo/etc/hosts`), so the containment check would pass and
+    // git would then be handed the original `/etc/hosts` anyway. `resolve` keeps an absolute path
+    // absolute, which is exactly what the check needs to see.
+    const inside = await resolveInside(this.ctx, root.value, resolve(repository.root, request.path), signal)
+    if (!inside.ok) return fail(inside.rejection.code, inside.rejection.message)
+
     // `--` and a repository-relative path, never a pattern: a path from the browser must not be
     // able to become an option (`--output=…`) or a pathspec magic word.
     const common = ['--no-pager', 'diff', '--no-color', '--no-ext-diff']
@@ -155,18 +179,23 @@ export class GitReader {
       ? [...common, '--no-index', '--', devNull(), request.path]
       : [...common, ...request.staged ? ['--cached'] : [], '--', request.path]
 
-    const outcome = await this.git(repository.root, argv, signal)
-    // `git diff` exits 1 when it found a difference under `--no-index`; only anything else is an error.
-    if (outcome.exitCode !== 0 && !(request.untracked && outcome.exitCode === 1)) {
-      return classify(outcome)
-    }
     const max = this.source().gitDiffMaxBytes
+    const outcome = await this.git(repository.root, argv, signal, max)
+    // `git diff --no-index` exits 1 to mean "the two files differ", which is the ordinary answer
+    // here. It also exits 1 for its own usage errors, and those go to stderr — so an exit 1 is
+    // success only when git said nothing on stderr.
+    const differed = request.untracked && outcome.exitCode === 1 && outcome.stderr.trim() === ''
+    if (outcome.exitCode !== 0 && !differed) return classify(outcome)
+
     const patch = outcome.stdout
-    const truncated = patch.length > max
+    // Two truncations can apply: the collector kept only the tail of an enormous patch, and the cap
+    // below keeps only the head. Reporting the union is what stops a patch that is really a middle
+    // slice from being labelled complete.
+    const truncated = outcome.stdoutLossy || patch.length > max
     return {
       ok: true,
       path: request.path,
-      patch: truncated ? patch.slice(0, max) : patch,
+      patch: patch.length > max ? patch.slice(0, max) : patch,
       binary: /^Binary files .* differ$/mu.test(patch),
       truncated,
     }
@@ -214,15 +243,17 @@ export class GitReader {
    * @param signal - the caller's cancellation.
    * @returns the finished command.
    */
-  private async git(cwd: string, args: readonly string[], signal?: AbortSignal): Promise<CommandOutcome> {
+  private async git(
+    cwd: string, args: readonly string[], signal?: AbortSignal, maxBytes?: number,
+  ): Promise<CommandOutcome> {
     const executable = await this.locate(signal)
     if (executable === undefined) {
       // `locate` already returned undefined for a missing binary, and every caller classifies a
       // non-zero exit, so a synthetic outcome keeps one return path instead of two.
       return {
-        exitCode: 127, signal: null, stdout: '',
+        exitCode: MISSING_BINARY_EXIT, signal: null, stdout: '',
         stderr: 'git is not installed, or not on this Host process PATH',
-        timedOut: false, aborted: false,
+        timedOut: false, aborted: false, stdoutLossy: false,
       }
     }
     const settings = this.source()
@@ -230,7 +261,9 @@ export class GitReader {
       argv: [executable, ...args],
       cwd,
       timeoutMs: settings.gitTimeoutMs,
-      maxBytes: Math.max(settings.gitDiffMaxBytes, 1 << 20),
+      // The caller's own bound where it has one, so the collector and the endpoint truncate at the
+      // same place; a status reading gets room for a very large repository.
+      maxBytes: maxBytes ?? Math.max(settings.gitDiffMaxBytes, 1 << 20),
       // git needs no grace period of its own: it holds no children and exits on TERM.
       graceMs: 1_000,
       // A pager would never exit, and locale-dependent output would break the parsers.

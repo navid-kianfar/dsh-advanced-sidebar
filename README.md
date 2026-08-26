@@ -45,9 +45,13 @@ The target of every entry is the session's own `cwd`, falling back to its Worksp
 
 **Terminal** allocates its own shell through `ctx.subprocess.spawnTerminal` — deliberately **not** `ctx.terminals`. That registry's sessions are owner-fenced to an `Agent` and are the model's working terminals; joining them would let a human's keystrokes land in a session the model believes it controls.
 
-Output is polled, not pushed: an out-of-tree plugin has no host-to-client push channel, so the panel holds the whole-stream offset it has already rendered and asks for whatever came after it. That offset is also what makes a reopened panel resume mid-scrollback. [`src/client/terminal-screen.ts`](src/client/terminal-screen.ts) applies the control sequences that change what the text *says* — carriage return, backspace, erase-in-line — and discards colour and cursor addressing, so a progress bar is one line rather than ten thousand.
+The screen is a real terminal emulator (`@xterm/xterm`), and that is why the browser bundle is large. It is not a preference: an interactive shell redraws its prompt with cursor addressing on every keystroke, and a hand-rolled screen model renders a login shell's prompt as overwritten fragments — verified, then replaced. Colour, line editing, history recall, and full-screen programs come with the emulator. Ctrl+C is intercepted and delivered as a **signal to the foreground process group** rather than as a byte, which is the difference between interrupting a running command and doing nothing.
 
-There is no resize: the subprocess seam exposes none. The panel measures its box once at allocation and **Restart** re-measures.
+Output is polled, not pushed: an out-of-tree plugin has no host-to-client push channel, so the panel holds the whole-stream offset it has already written into the emulator and asks for whatever came after it. That offset is also what makes a reopened panel replay the retained scrollback.
+
+There is no resize: the subprocess seam exposes none. The emulator follows the drawer so rendered rows stay readable, but the *shell* keeps the size it was allocated at; **Restart** allocates one at the new size.
+
+[`src/client/terminal-screen.ts`](src/client/terminal-screen.ts) survives as the log renderer for the Preview and Background tasks panels, which show plain output rather than an interactive screen.
 
 **Files** lists through this plugin's own endpoint rather than the Web Client's `listDirectory`, because the Host's browse capability returns directories only — its one shipped caller is a workspace picker. Every path is resolved through `ctx.fs` and proved to sit inside the workspace before anything reads it.
 
@@ -86,9 +90,13 @@ Stopping is `SIGTERM` then `SIGKILL` on the whole process tree after `previewGra
 - `archive` hides the session and keeps its log.
 - `purge` also removes the persistence backend's per-session artifact. Nothing undoes that, it requires `confirmDelete`, and it **never touches a live session** — a running turn would keep appending to a file that no longer exists, so the archive commits and the reason comes back with it. A backend that keeps no per-session artifact (SQLite) reports `archive` from `describe()`, so the confirmation never promises a removal that will not happen.
 
+A live session is detected through the **agent registry**, not the session store: an agent is what runs a turn, and a cold session the store merely retains is not being written to.
+
 ## Settings
 
 The `advanced-sidebar` section is registered by the Host half and rendered as a card on the settings **Plugins** tab. Every control writes straight through the bound settings scope, which owns revision fencing; there is no save or discard.
+
+`describe()` also carries the **resolved section**, and every surface reads `bound scope value ?? describe().settings`. That is not redundancy: `ctx.settingsScope` resolves to a real document only on a loopback connection and answers `unavailable` with no value on every remote Web Client. Without the Host's copy the whole surface would read "no settings" as "switched off" and disappear for remote access; with it, a remote client sees the deployment's real configuration, read-only.
 
 Every deployment-varying choice is a `config` field on the `advanced-sidebar` row in [`cordis.patch.yml`](cordis.patch.yml) — placement, which entries exist, drawer width, delete mode, task permissions, git bounds, the shell, the terminal count, the file-preview bounds, and the Open in targets. The card edits all of them except the target list, which stays in `cordis.yml` where a command and its arguments can be written properly; the card shows each target's **availability on this Host**, which the file cannot state.
 
@@ -139,8 +147,14 @@ For a live loop, run `npx tsdown --watch` in this package: the harness's HMR hal
 - **No terminal resize.** The subprocess seam has no resize verb. Long lines wrap rather than scroll, and **Restart** re-measures the box.
 - **Stopping a task suppresses its model notice.** See Background tasks above; `allowTaskKill: false` removes the verb.
 - **Purge removes one artifact.** Exactly the path the persistence backend reported for that session — a sidecar the backend owns is the backend's to remove, and a recursive delete here could take a directory.
-- **Colour is discarded in the terminal.** The screen model keeps the text, not the presentation.
+- **The browser bundle is ~1 MB (205 KB gzipped).** The emulator is most of it. The client module loader serves one file per plugin with no code splitting, so it cannot be deferred until the Terminal panel opens.
 - **`--dsw-alias-label-error` is not used here.** ui-theme declares no such token, though three harness stylesheets reference it; this package uses `--dsw-alias-state-error-primary`, and `tests/styles.spec.ts` fails on any token ui-theme does not declare.
+
+## Verification
+
+Every panel was exercised against a running `dsh web` before release: the git reading and a per-file patch against a real repository, a `/bin/zsh` shell running a command and rendering its output, the file listing and a text preview, a `.claude/launch.json` dev server started and shown in the frame plus a deliberately failing one whose stderr opened the log view, the empty task list, and the Delete confirmation. `tests/` covers the porcelain parser against real `git status -z` output, the launch-file parser and merge, the screen model's control vocabulary, the path-containment guard, the generated wire contract end to end, and every design token the stylesheets name.
+
+An adversarial audit of the finished package found 35 candidate defects; the confirmed ones are fixed here, including a path-traversal hole in the untracked-diff path (`git diff --no-index` applies no repository containment of its own), a duplicated task-output buffer, a preview poll loop that never stopped on a failed server, and the settings fallback described above.
 
 ## License
 

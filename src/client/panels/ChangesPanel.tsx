@@ -8,14 +8,14 @@
  * @module @achasoft/dsh-advanced-sidebar/client/panels/ChangesPanel
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   IconChevronDownOutline14, IconChevronRightOutline14, IconCopyOutline16, IconRefreshOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GitDiffResult, GitFileChange, GitStatusResult } from '../../host/types.ts'
 import type { Translate } from '../contract.ts'
 import { cx } from '../cx.ts'
-import { transportMessage, type PanelProps } from './shared.ts'
+import { PathText, transportMessage, useLatest, type PanelProps } from './shared.tsx'
 import css from './Panels.module.css'
 
 /** Which of the four groups a row belongs to; the group decides how its diff is requested. */
@@ -119,9 +119,12 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
   const [expanded, setExpanded] = useState<string | undefined>(undefined)
   const [diffs, setDiffs] = useState<Readonly<Record<string, DiffState>>>({})
   const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef(0)
+  useEffect(() => () => { window.clearTimeout(copiedTimer.current) }, [])
 
   const directory = target.directory
   const { gitStatus, gitDiff, copy } = face
+  const latest = useLatest(t)
 
   useEffect(() => {
     if (directory === undefined) return
@@ -129,10 +132,12 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
     setError(undefined)
     gitStatus(directory, controller.signal).then(
       (next) => { if (!controller.signal.aborted) setStatus(next) },
-      (reason: unknown) => { if (!controller.signal.aborted) setError(transportMessage(reason, t)) },
+      (reason: unknown) => {
+        if (!controller.signal.aborted) setError(transportMessage(reason, latest.current))
+      },
     )
     return () => { controller.abort() }
-  }, [directory, generation, gitStatus, t])
+  }, [directory, generation, gitStatus, latest])
 
   // A reload invalidates every open patch: the row is still there, but what it showed described the
   // previous reading. Clearing is cheaper and more honest than re-fetching patches nobody expanded.
@@ -155,11 +160,11 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
       (reason: unknown) => {
         setDiffs(current => ({
           ...current,
-          [key]: { loading: false, result: undefined, error: transportMessage(reason, t) },
+          [key]: { loading: false, result: undefined, error: transportMessage(reason, latest.current) },
         }))
       },
     )
-  }, [diffs, directory, gitDiff, t])
+  }, [diffs, directory, gitDiff, latest])
 
   const groups = useMemo((): readonly (readonly [Group, readonly GitFileChange[]])[] => {
     if (status === undefined || !status.ok) return []
@@ -223,22 +228,23 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
                     <span className={cx(css.letter, css[`letter${statusLetter(group, change)}`])}>
                       {statusLetter(group, change)}
                     </span>
-                    <span className={css.filePath} title={change.oldPath === undefined ? change.path : `${change.oldPath} → ${change.path}`}>
-                      {change.path}
-                    </span>
+                    <PathText
+                      className={css.filePath}
+                      value={change.oldPath === undefined ? change.path : `${change.oldPath} → ${change.path}`}
+                    />
                   </button>
                   {open && (
                     <div className={css.diffBlock}>
-                      {state?.result?.ok === true && state.result.patch !== '' && (
+                      {state?.result?.ok === true && !state.result.binary && state.result.patch !== '' && (
                         <button
                           type="button"
                           className={css.copyButton}
                           onClick={() => {
                             void copy(state.result?.ok === true ? state.result.patch : '').then((done) => {
-                              if (done) {
-                                setCopied(true)
-                                window.setTimeout(() => { setCopied(false) }, 1_500)
-                              }
+                              if (!done) return
+                              setCopied(true)
+                              window.clearTimeout(copiedTimer.current)
+                              copiedTimer.current = window.setTimeout(() => { setCopied(false) }, 1_500)
                             })
                           }}
                         >

@@ -73,19 +73,29 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* The menu wrapper must not become a layout box of its own: the seats place the trigger, and the
-   list is portaled to the body. */
+/* The Menu primitive's own root wraps the trigger. It is `inline-flex`, so a `width: 100%` on the
+   button inside would resolve against a shrink-to-fit box rather than the sidebar column — the
+   wrapper has to carry the column's width itself for the foot row to span it. */
 .menuRoot {
-  display: inline-flex;
+  display: flex;
   min-width: 0;
 }
 
-/* One row's label, with the reason it is unavailable trailing it. */
+/* The sidebar seat gives the wrapper the column; the header seat leaves it shrink-to-fit. */
+.menuRootWide {
+  width: 100%;
+}
+
+/* One row's label, with the reason it is unavailable trailing it.
+   `white-space: normal` is restated because the Menu primitive's own `.itemLabel` sets `nowrap`,
+   which would make the diagnostic below an unbreakable line that widens the whole card. */
 .row {
-  display: inline-flex;
+  display: flex;
   align-items: baseline;
   gap: 8px;
   min-width: 0;
+  max-width: 320px;
+  white-space: normal;
 }
 
 .rowLabel {

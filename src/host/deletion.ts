@@ -84,13 +84,10 @@ export class SessionDeleter {
     try {
       await registry.archiveSession(sessionId)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      // The registry's own unknown-session rejection is the one failure a person can act on
-      // (the row is stale), so it keeps its own code.
-      if (/unknown session|not.*(live|persist)/iu.test(message)) {
-        return { ok: false, code: 'unknown-session', message }
-      }
-      return { ok: false, code: 'archive-failed', message }
+      // Every archive rejection is reported under one code carrying the registry's own message.
+      // Matching its wording to re-classify it would be a guess about text this package does not
+      // own, and a storage fault phrased slightly differently would be shown as a stale row.
+      return { ok: false, code: 'archive-failed', message: error instanceof Error ? error.message : String(error) }
     }
 
     if (settings.deleteMode === 'archive') return { ok: true, archived: true, purged: false }

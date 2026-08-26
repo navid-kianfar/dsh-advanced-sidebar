@@ -15,6 +15,8 @@ import type { PanelHostProps } from './contract.ts'
 import { cx } from './cx.ts'
 import { ChangesPanel } from './panels/ChangesPanel.tsx'
 import { FilesPanel } from './panels/FilesPanel.tsx'
+import { PathText } from './panels/shared.tsx'
+import { useCapabilityView } from './use-capability.ts'
 import { PreviewPanel } from './panels/PreviewPanel.tsx'
 import { TasksPanel } from './panels/TasksPanel.tsx'
 import { TerminalPanel } from './panels/TerminalPanel.tsx'
@@ -37,20 +39,27 @@ export function PanelHost(props: PanelHostProps) {
   const panel = useSidebar(state => state.panel)
   const confirm = useSidebar(state => state.confirm)
   const notice = useSidebar(state => state.notice)
-  const settings = useSettings(snapshot => snapshot.value)
+  const bound = useSettings(snapshot => snapshot.value)
   const { close, dismissNotice, dismissDelete, forgetSession } = props
+  // Probed only while a drawer is open; the fallback matters for the same reason as in the seats.
+  const { view } = useCapabilityView(props.describe, panel.panel !== undefined)
+  const settings = bound ?? view?.settings
 
   // A session that leaves the list takes its drawer and its pending confirmation with it: both act
   // on an id the Host would now refuse, and leaving them open invites a click that cannot work.
-  const known = useSessions((state) => {
-    const id = panel.target?.sessionId ?? confirm?.target.sessionId
-    return id === undefined || state.byId[id as keyof typeof state.byId] !== undefined
-  })
+  const panelId = panel.target?.sessionId
+  const confirmId = confirm?.target.sessionId
+  // Checked per id, not merged: the drawer and a pending Delete can name DIFFERENT sessions, and
+  // one `??` would report the drawer's session as live and leave a confirmation open on a row the
+  // Host has already forgotten.
+  const panelGone = useSessions(state =>
+    panelId !== undefined && state.byId[panelId as keyof typeof state.byId] === undefined)
+  const confirmGone = useSessions(state =>
+    confirmId !== undefined && state.byId[confirmId as keyof typeof state.byId] === undefined)
   useEffect(() => {
-    if (known) return
-    const id = panel.target?.sessionId ?? confirm?.target.sessionId
-    if (id !== undefined) forgetSession(id)
-  }, [known, panel.target, confirm, forgetSession])
+    if (panelGone && panelId !== undefined) forgetSession(panelId)
+    if (confirmGone && confirmId !== undefined) forgetSession(confirmId)
+  }, [panelGone, confirmGone, panelId, confirmId, forgetSession])
 
   // Escape closes the drawer, but only when the confirmation is not up: the dialog owns Escape
   // while it is open, and closing both at once would be one gesture undoing two decisions.
@@ -87,15 +96,18 @@ export function PanelHost(props: PanelHostProps) {
           <header className={css.head}>
             <div className={css.headText}>
               <h2 className={css.title}>{t(`${panel.panel}.title` as 'changes.title')}</h2>
-              <p className={css.subtitle} title={target.directory ?? target.title}>
-                {target.directory ?? t('panel.session', { name: target.title })}
-              </p>
+              {target.directory === undefined
+                ? <p className={css.subtitle}>{t('panel.session', { name: target.title })}</p>
+                : <PathText value={target.directory} className={css.subtitle} />}
             </div>
             <button type="button" className={css.iconButton} aria-label={t('panel.close')} onClick={close}>
               <IconCloseOutline16 />
             </button>
           </header>
-          <div className={css.body}>
+          {/* Keyed on what the panel acts on, so switching sessions REMOUNTS it. Without this,
+              React reuses the instance and an expanded diff, a scrolled listing, or a selected
+              preview row survives into a different repository and describes the wrong one. */}
+          <div className={css.body} key={`${panel.panel}:${target.sessionId}:${target.directory ?? ''}`}>
             {panel.panel === 'changes' && <ChangesPanel target={target} t={t} face={props} />}
             {panel.panel === 'terminal' && <TerminalPanel target={target} t={t} face={props} />}
             {panel.panel === 'files' && <FilesPanel target={target} t={t} face={props} />}

@@ -1,15 +1,22 @@
 /**
- * A minimal terminal screen: enough of the control vocabulary that a shell prompt, a progress line,
- * and ordinary command output all read correctly.
+ * A one-line-at-a-time terminal screen: enough of the control vocabulary that a shell prompt, an
+ * interactive line edit, and a progress line all read correctly.
  *
- * This is deliberately not a terminal emulator. The panel's job is to show what a command printed,
- * not to run a full-screen editor, so colour and cursor addressing are discarded rather than
- * modelled — but the sequences that change what the text SAYS are honoured, because dropping them
- * turns a progress bar into thousands of duplicate lines and a prompt redraw into gibberish:
+ * This is deliberately not a full terminal emulator — there is no scroll region, no alternate
+ * screen, and no vertical cursor addressing, so a full-screen editor run in the panel will not
+ * render. What IS modelled is everything that decides what the current line SAYS, because an
+ * interactive shell redraws its prompt constantly and a screen that drops those sequences turns
+ * every keystroke into overwritten gibberish:
  *
- * - CR returns to column 0, so the next characters overwrite the line rather than starting one.
- * - BS steps back one column, which is how a shell erases a character during line editing.
- * - `CSI K` (with parameter 0, 1, or 2) erases part of the line the cursor sits on.
+ * - CR / BS move within the line.
+ * - `CUF` / `CUB` / `CHA` / `HPA` move the column, which is how `zle` and `readline` reposition
+ *   themselves after re-emitting a prompt.
+ * - `EL` erases part of the line, `ECH` blanks characters in place, and `DCH` / `ICH` delete and
+ *   insert them — the four a shell uses to edit text you already typed.
+ * - `ED` with parameter 2 clears the screen, which is what `clear` sends.
+ *
+ * Colour, mode switches, bracketed paste, and window titles are discarded: they change presentation,
+ * not text. Vertical movement is discarded too, and that is the honest boundary of this model.
  *
  * Feeding is incremental: the panel writes each polled delta, so cost is proportional to new output
  * rather than to the whole retained scrollback.
@@ -89,7 +96,7 @@ export class TerminalScreen {
   }
 
   /**
-   * Consume one escape sequence, applying the few that change the text.
+   * Consume one escape sequence, applying the ones that change the text or the column.
    * @param text - the chunk being written.
    * @param start - index of the ESC byte.
    * @returns the index just past the sequence.
@@ -104,7 +111,9 @@ export class TerminalScreen {
       while (index < text.length) {
         const character = text[index] ?? ''
         if (character >= '@' && character <= '~') {
-          if (character === 'K') this.eraseInLine(parameters)
+          // A private sequence (`CSI ? … h`) is a mode switch — bracketed paste, cursor visibility,
+          // the alternate screen — and never text.
+          if (!parameters.startsWith('?')) this.csi(character, parameters)
           return index + 1
         }
         parameters += character
@@ -129,15 +138,77 @@ export class TerminalScreen {
   }
 
   /**
-   * Apply the erase-in-line sequence.
-   * @param parameters - the parameter bytes before the final `K`.
+   * Apply one CSI sequence.
+   * @param final - the sequence's final byte.
+   * @param parameters - the parameter bytes before it.
    */
-  private eraseInLine(parameters: string): void {
+  private csi(final: string, parameters: string): void {
+    // Every sequence here takes one numeric parameter defaulting to 1, except the erase family,
+    // whose parameter selects a mode and defaults to 0.
+    const first = parameters.split(';')[0] ?? ''
+    const count = first === '' ? 1 : Math.max(1, Number.parseInt(first, 10) || 1)
+    const mode = first === '' ? 0 : Number.parseInt(first, 10) || 0
+    switch (final) {
+      case 'C': this.column += count; return
+      case 'D': this.column = Math.max(0, this.column - count); return
+      case 'G': case '`': this.column = Math.max(0, count - 1); return
+      case 'K': this.eraseInLine(mode); return
+      case 'X': this.eraseCharacters(count); return
+      case 'P': this.deleteCharacters(count); return
+      case '@': this.insertBlanks(count); return
+      // `ED` with 2 or 3 is what `clear` sends; 0 and 1 erase relative to a cursor row this model
+      // does not track, so they are dropped rather than guessed at.
+      case 'J': if (mode >= 2) this.clear(); return
+      default:
+        // Vertical movement, scroll regions, mode changes, and colour all reach here and are
+        // discarded: this model has one line under a cursor, not a grid.
+    }
+  }
+
+  /** The line the cursor sits on, padded out to the cursor when it sits past the end. */
+  private padded(): string {
     const line = this.lines[this.lines.length - 1] ?? ''
-    const mode = parameters === '' ? '0' : parameters
-    if (mode === '0') this.lines[this.lines.length - 1] = line.slice(0, this.column)
-    else if (mode === '1') this.lines[this.lines.length - 1] = ' '.repeat(this.column) + line.slice(this.column)
-    else if (mode === '2') this.lines[this.lines.length - 1] = ''
+    return line.length < this.column ? line + ' '.repeat(this.column - line.length) : line
+  }
+
+  /**
+   * Apply the erase-in-line sequence.
+   * @param mode - 0 erases to the end, 1 to the cursor, 2 the whole line.
+   */
+  private eraseInLine(mode: number): void {
+    const line = this.padded()
+    if (mode === 0) this.lines[this.lines.length - 1] = line.slice(0, this.column)
+    else if (mode === 1) this.lines[this.lines.length - 1] = ' '.repeat(this.column) + line.slice(this.column)
+    else if (mode === 2) this.lines[this.lines.length - 1] = ''
+  }
+
+  /**
+   * Blank characters in place, leaving the cursor where it was.
+   * @param count - how many characters to blank.
+   */
+  private eraseCharacters(count: number): void {
+    const line = this.padded()
+    this.lines[this.lines.length - 1] = line.slice(0, this.column)
+      + ' '.repeat(count)
+      + line.slice(this.column + count)
+  }
+
+  /**
+   * Delete characters at the cursor, shifting the rest of the line left.
+   * @param count - how many characters to delete.
+   */
+  private deleteCharacters(count: number): void {
+    const line = this.padded()
+    this.lines[this.lines.length - 1] = line.slice(0, this.column) + line.slice(this.column + count)
+  }
+
+  /**
+   * Insert blanks at the cursor, shifting the rest of the line right.
+   * @param count - how many blanks to insert.
+   */
+  private insertBlanks(count: number): void {
+    const line = this.padded()
+    this.lines[this.lines.length - 1] = line.slice(0, this.column) + ' '.repeat(count) + line.slice(this.column)
   }
 
   /** Start a new line, dropping the head once the retention bound is reached. */
@@ -152,10 +223,8 @@ export class TerminalScreen {
    * @param text - printable characters only.
    */
   private put(text: string): void {
-    const at = this.lines.length - 1
-    const line = this.lines[at] ?? ''
-    const padded = line.length < this.column ? line + ' '.repeat(this.column - line.length) : line
-    this.lines[at] = padded.slice(0, this.column) + text + padded.slice(this.column + text.length)
+    const line = this.padded()
+    this.lines[this.lines.length - 1] = line.slice(0, this.column) + text + line.slice(this.column + text.length)
     this.column += text.length
   }
 }

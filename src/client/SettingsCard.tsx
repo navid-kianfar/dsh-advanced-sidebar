@@ -56,9 +56,11 @@ export function SettingsCard(props: SettingsCardProps) {
   // The Host is asked only while the card is expanded: a collapsed card renders nothing that
   // depends on the answer, and probing every plugin card at boot would spend one PATH scan each.
   const { view } = useCapabilityView(describe, open)
-
-  const value = settings.value
-  const disabled = !settings.writable || value === undefined
+  // A card whose scope has no document still shows the deployment's real configuration, read-only:
+  // `writable` already disables every control there, and a blank card would be worse than one that
+  // says what the Host is actually configured with.
+  const value = settings.value ?? view?.settings
+  const disabled = !settings.writable || settings.value === undefined
 
   /** One boolean field, written straight through the bound scope. */
   const toggle = (
