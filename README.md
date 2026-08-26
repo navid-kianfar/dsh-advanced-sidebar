@@ -29,6 +29,7 @@ Build the plugin first (`pnpm install && pnpm run build`); the Web Client refuse
 | Changes | Uncommitted changes in the session's working directory, with each file's patch on demand | `git` on PATH, `ctx.subprocess`, `ctx.fs` |
 | Terminal | An interactive shell of your own, in that directory | `ctx.subprocess`, `ctx.fs` |
 | Files | That directory, one level at a time, with a text preview | `ctx.fs` |
+| Preview | The workspace's dev server, started and shown in a frame, with its logs | `ctx.subprocess`, `ctx.fs` |
 | Background tasks | This session's `ctx.jobs` records, with Stop and the output of a settled one | `ctx.jobs` |
 | Open in ▸ | A second browser window, a configured editor, or the operating system's file manager | `ctx.subprocess` for the editors |
 | Archive | Hides the session; its log and its accounting slot remain | `ctx.workspaceRegistry` |
@@ -49,6 +50,29 @@ Output is polled, not pushed: an out-of-tree plugin has no host-to-client push c
 There is no resize: the subprocess seam exposes none. The panel measures its box once at allocation and **Restart** re-measures.
 
 **Files** lists through this plugin's own endpoint rather than the Web Client's `listDirectory`, because the Host's browse capability returns directories only — its one shipped caller is a workspace picker. Every path is resolved through `ctx.fs` and proved to sit inside the workspace before anything reads it.
+
+**Preview** runs what you are building and shows it beside the conversation.
+
+Launch configurations are read from the workspace's own **`.claude/launch.json`** — Claude Code's file, unchanged — and from the `previews` settings rows, in that order; a name declared in both is taken from the repository's file, because a repository is the authority on how to run itself. A row with a `runtimeExecutable` starts a process; a row with only a `url` is attach-only and simply points the frame at something already running.
+
+```json
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 3000 },
+    { "name": "docs", "runtimeExecutable": "pnpm", "runtimeArgs": ["docs:dev"], "port": 5173, "cwd": "website" }
+  ]
+}
+```
+
+Readiness is a **TCP connect to the configured port**, retried until it accepts or `previewReadyTimeoutMs` passes. An HTTP probe would need a path, a method, and an opinion about which status codes count; a listening socket is the one fact every dev server agrees on. `PORT` is exported to the child, and `NO_COLOR`/`FORCE_COLOR` are set so the log view shows text rather than escape sequences.
+
+The frame is a plain `<iframe>` with viewport presets (desktop, tablet, mobile) scaled to the drawer, and an editable address bar so you can navigate into a route rather than only the root. Two controls are permanent rather than error states:
+
+- **Logs** — stdout and stderr interleaved in arrival order, read by the same caller-owned offset the Terminal panel uses. A server that failed to start has nothing to put in the frame and its stderr is the only place the reason exists, so a failed start opens the log view itself.
+- **Open in a new window** — a page can refuse to be framed (`X-Frame-Options`, `frame-ancestors`), and cross-origin framing gives the panel no way to detect that: the load event fires either way. The escape hatch is therefore always present instead of appearing after a failure nothing can observe.
+
+Stopping is `SIGTERM` then `SIGKILL` on the whole process tree after `previewGraceMs`, so a dev server's own child processes go with it. Starting a configuration that is already running replaces it rather than racing it for the port, and every server is stopped when the plugin unloads.
 
 **Background tasks** does not fetch its list. The Host already pushes `session/jobs` frames that the Web Client folds into `jobsBySession`, so the panel reads the same live data the session header's job chip reads. Only Stop and output cross this plugin's endpoint:
 
@@ -110,7 +134,8 @@ For a live loop, run `npx tsdown --watch` in this package: the harness's HMR hal
 
 ## Known limitations
 
-- **No push channel.** An out-of-tree plugin cannot add a wire frame, so terminal output and the git reading are polled. Background tasks are the exception — they ride the Host's existing `session/jobs` push.
+- **The preview frame cannot report its own console or network.** Those need same-origin access to the framed page, which a dev server on another port does not give. The server's own logs are what the panel shows; the browser's devtools are one "Open in a new window" away.
+- **No push channel.** An out-of-tree plugin cannot add a wire frame, so terminal output, preview logs, and the git reading are polled. Background tasks are the exception — they ride the Host's existing `session/jobs` push.
 - **No terminal resize.** The subprocess seam has no resize verb. Long lines wrap rather than scroll, and **Restart** re-measures the box.
 - **Stopping a task suppresses its model notice.** See Background tasks above; `allowTaskKill: false` removes the verb.
 - **Purge removes one artifact.** Exactly the path the persistence backend reported for that session — a sidecar the backend owns is the backend's to remove, and a recursive delete here could take a directory.

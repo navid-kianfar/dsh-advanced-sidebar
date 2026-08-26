@@ -28,6 +28,7 @@
         showTerminal: true
         showFiles: true
         showTasks: true
+        showPreview: true
         showOpenIn: true
         showArchive: true
         showDelete: true
@@ -69,6 +70,35 @@
         filesMaxPreviewBytes: 262144
         filesMaxEntries: 2000
         filesShowHidden: false
+
+        # The Preview panel. Configurations are read from the workspace's own `.claude/launch.json`
+        # first — Claude Code's file, so a repository already carrying one needs nothing here — and
+        # from the `previews` rows below second; a name declared in both is taken from the file.
+        #
+        # `runtimeExecutable: ''` makes a row attach-only: it points the frame at `url` and starts
+        # nothing, which is how a staging deployment or an already-running server is bookmarked.
+        # `port` is what readiness is probed on (a TCP connect, retried until it accepts) and is
+        # also exported to the child as PORT.
+        previewsFromLaunchFile: true
+        maxPreviews: 3
+        previewReadyTimeoutMs: 60000
+        previewScrollback: 200000
+        previewGraceMs: 3000
+        previews: []
+        # Example rows — uncomment and adapt, or put the same thing in .claude/launch.json:
+        # previews:
+        #   - name: web
+        #     runtimeExecutable: npm
+        #     runtimeArgs: ['run', 'dev']
+        #     port: 3000
+        #     url: ''
+        #     cwd: ''
+        #   - name: staging
+        #     runtimeExecutable: ''
+        #     runtimeArgs: []
+        #     port: 0
+        #     url: https://staging.example.com
+        #     cwd: ''
 
         # Open in targets. Each is offered only when its command resolves on the Host, and listed
         # as unavailable when it does not — so a typo here is visible rather than silent. The

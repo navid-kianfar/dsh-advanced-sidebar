@@ -17,7 +17,7 @@ import {
 import type { AdvancedSidebarSettings, AdvancedSidebarView } from '../host/types.ts'
 import type { MenuInjected, Translate } from './contract.ts'
 import type { OperationTarget, PanelKind } from './controller.ts'
-import { ChangesGlyph, ExternalGlyph, TerminalGlyph } from './Glyphs.tsx'
+import { ChangesGlyph, ExternalGlyph, PreviewGlyph, TerminalGlyph } from './Glyphs.tsx'
 import { cx } from './cx.ts'
 import css from './ActionMenu.module.css'
 
@@ -121,6 +121,7 @@ export function ActionMenu(props: ActionMenuProps) {
   if (settings.showChanges) panelRow('changes', 'menu.changes', <ChangesGlyph size={16} />, view?.git)
   if (settings.showTerminal) panelRow('terminal', 'menu.terminal', <TerminalGlyph size={16} />, view?.terminal)
   if (settings.showFiles) panelRow('files', 'menu.files', <IconFolderOpenOutline16 />, view?.files)
+  if (settings.showPreview) panelRow('preview', 'menu.preview', <PreviewGlyph size={16} />, view?.preview)
   if (settings.showTasks) {
     // The tasks panel needs a session, not a directory: a background task belongs to a session
     // whether or not that session ever had a working tree.
@@ -189,7 +190,7 @@ export function ActionMenu(props: ActionMenuProps) {
     }
     if (id === 'archive') { void actions.archive(target); return }
     if (id === 'delete') { void actions.requestDelete(target); return }
-    if (id === 'changes' || id === 'terminal' || id === 'files' || id === 'tasks') {
+    if (id === 'changes' || id === 'terminal' || id === 'files' || id === 'tasks' || id === 'preview') {
       actions.openPanel(id, target)
     }
     // Any other id is the `open-in` parent row, which `Menu` reports only when it has no submenu —

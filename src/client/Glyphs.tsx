@@ -68,6 +68,24 @@ export function ChangesGlyph({ size = 16, className }: GlyphProps) {
 }
 
 /**
+ * A browser window with a play mark: a running application.
+ * @param props - size and class overrides.
+ * @returns the glyph element.
+ */
+export function PreviewGlyph({ size = 16, className }: GlyphProps) {
+  return (
+    <svg
+      className={className} width={size} height={size} viewBox="0 0 16 16" fill="none"
+      stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+    >
+      <rect x="2" y="2.6" width="12" height="10.8" rx="1.6" />
+      <path d="M2 5.8h12" />
+      <path d="M6.8 8.2 9.8 9.9 6.8 11.6Z" />
+    </svg>
+  )
+}
+
+/**
  * A browser window pushed out of a frame: open somewhere else.
  * @param props - size and class overrides.
  * @returns the glyph element.

@@ -201,6 +201,10 @@ function surface(ctx: ClientContext): void {
       terminalInterrupt: terminalId => remote.terminalSignal({ terminalId, signal: 'SIGINT' }).then(unwrap),
       terminalClose: terminalId => remote.terminalClose({ terminalId }).then(unwrap),
       listEntries: (path, workspacePath, signal) => remote.listEntries({ path, workspacePath }, signal).then(unwrap),
+      previewList: (workspacePath, signal) => remote.previewList({ workspacePath }, signal).then(unwrap),
+      previewStart: (workspacePath, name) => remote.previewStart({ workspacePath, name }).then(unwrap),
+      previewStop: serverId => remote.previewStop({ serverId }).then(unwrap),
+      previewLogs: (serverId, fromOffset) => remote.previewLogs({ serverId, fromOffset }).then(unwrap),
       readFile: (path, workspacePath, signal) => remote.readFile({ path, workspacePath }, signal).then(unwrap),
       openPath: async (path) => {
         try {

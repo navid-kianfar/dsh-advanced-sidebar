@@ -113,7 +113,8 @@ export function SettingsCard(props: SettingsCardProps) {
 
   const canPurge = view?.deletion.canPurge ?? true
   const ready = view === undefined
-    || [view.git.available, view.terminal.available, view.files.available, view.tasks.available].every(Boolean)
+    || [view.git.available, view.terminal.available, view.files.available, view.tasks.available, view.preview.available]
+      .every(Boolean)
 
   return (
     <li className={cx(css.card, open && css.cardOpen)}>
@@ -152,6 +153,7 @@ export function SettingsCard(props: SettingsCardProps) {
               {toggle('showTerminal', t('settings.showTerminal'), view?.terminal.reason ?? t('settings.showTerminal.hint'), value.showTerminal)}
               {toggle('showFiles', t('settings.showFiles'), view?.files.reason ?? t('settings.showFiles.hint'), value.showFiles)}
               {toggle('showTasks', t('settings.showTasks'), view?.tasks.reason ?? t('settings.showTasks.hint'), value.showTasks)}
+              {toggle('showPreview', t('settings.showPreview'), view?.preview.reason ?? t('settings.showPreview.hint'), value.showPreview)}
               {toggle('showOpenIn', t('settings.showOpenIn'), t('settings.showOpenIn.hint'), value.showOpenIn)}
               {toggle('showArchive', t('settings.showArchive'), t('settings.showArchive.hint'), value.showArchive)}
               {toggle('showDelete', t('settings.showDelete'), t('settings.showDelete.hint'), value.showDelete)}
@@ -204,6 +206,7 @@ export function SettingsCard(props: SettingsCardProps) {
                   />
                 )}
               />
+              {toggle('previewsFromLaunchFile', t('settings.previewsFromLaunchFile'), t('settings.previewsFromLaunchFile.hint'), value.previewsFromLaunchFile)}
               {toggle('allowTaskKill', t('settings.allowTaskKill'), t('settings.allowTaskKill.hint'), value.allowTaskKill)}
               {toggle('showTaskOutput', t('settings.showTaskOutput'), t('settings.showTaskOutput.hint'), value.showTaskOutput)}
 
@@ -214,6 +217,8 @@ export function SettingsCard(props: SettingsCardProps) {
               {number('gitMaxFiles', t('settings.gitMaxFiles'), t('settings.gitMaxFiles.hint'), value.gitMaxFiles, 1, 10_000)}
               {number('gitTimeoutMs', t('settings.gitTimeoutMs'), t('settings.gitTimeoutMs.hint'), value.gitTimeoutMs, 1_000, 600_000)}
               {number('maxTerminals', t('settings.maxTerminals'), t('settings.maxTerminals.hint'), value.maxTerminals, 1, 32)}
+              {number('maxPreviews', t('settings.maxPreviews'), t('settings.maxPreviews.hint'), value.maxPreviews, 1, 16)}
+              {number('previewReadyTimeoutMs', t('settings.previewReadyTimeoutMs'), t('settings.previewReadyTimeoutMs.hint'), value.previewReadyTimeoutMs, 1_000, 600_000)}
               <Field
                 id={`${fieldId}-terminalShell`}
                 label={t('settings.terminalShell')}
@@ -231,6 +236,27 @@ export function SettingsCard(props: SettingsCardProps) {
                   />
                 )}
               />
+
+              <div className={css.field}>
+                <div className={css.head}>
+                  <span className={css.label}>{t('settings.previews')}</span>
+                </div>
+                <p className={css.hint}>{t('settings.previews.hint')}</p>
+                {value.previews.length === 0
+                  ? <p className={css.hint}>{t('settings.previews.empty')}</p>
+                  : (
+                    <ul className={css.targets}>
+                      {value.previews.map(preview => (
+                        <li key={preview.name} className={css.target}>
+                          <span className={css.targetLabel}>{preview.name}</span>
+                          <span className={css.badgeMuted}>
+                            {preview.port > 0 ? `:${String(preview.port)}` : preview.url}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+              </div>
 
               <div className={css.field}>
                 <div className={css.head}>

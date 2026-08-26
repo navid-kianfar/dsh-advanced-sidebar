@@ -17,7 +17,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {
   AdvancedSidebarSettings, AdvancedSidebarView, DeleteSessionResult, GitDiffRequest, GitDiffResult,
-  GitStatusResult, ListEntriesResult, ReadFileResult, TaskKillResult, TaskOutputResult,
+  GitStatusResult, ListEntriesResult, PreviewListResult, PreviewLogsResult, PreviewStartResult,
+  PreviewStopResult, ReadFileResult, TaskKillResult, TaskOutputResult,
   TerminalAckResult, TerminalOpenResult, TerminalReadResult,
 } from '../host/types.ts'
 import type { OperationTarget, PanelController, PanelKind } from './controller.ts'
@@ -179,6 +180,33 @@ export interface PanelHostInjected {
    * @returns the preview, or a classified failure.
    */
   readFile: (path: string, workspacePath: string, signal?: AbortSignal) => Promise<ReadFileResult>
+  /**
+   * List one workspace's preview launch configurations, each with its current state.
+   * @param workspacePath - the workspace to read.
+   * @param signal - cancellation for the read.
+   * @returns the list, or a classified failure.
+   */
+  previewList: (workspacePath: string, signal?: AbortSignal) => Promise<PreviewListResult>
+  /**
+   * Start one preview configuration.
+   * @param workspacePath - the workspace it belongs to.
+   * @param name - the configuration name.
+   * @returns the started row, or a classified failure.
+   */
+  previewStart: (workspacePath: string, name: string) => Promise<PreviewStartResult>
+  /**
+   * Stop one running preview server.
+   * @param serverId - the handle.
+   * @returns settlement, or a classified failure.
+   */
+  previewStop: (serverId: string) => Promise<PreviewStopResult>
+  /**
+   * Read one preview server's output from the offset already rendered, with its state.
+   * @param serverId - the handle.
+   * @param fromOffset - the rendered offset.
+   * @returns the delta and the state, or a classified failure.
+   */
+  previewLogs: (serverId: string, fromOffset: number) => Promise<PreviewLogsResult>
   /**
    * Open one path with the Host operating system's default application.
    * @param path - the absolute path.

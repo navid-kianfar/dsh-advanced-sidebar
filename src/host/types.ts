@@ -54,6 +54,8 @@ export interface AdvancedSidebarSettings {
   readonly showArchive: boolean
   /** Offer the Delete entry. */
   readonly showDelete: boolean
+  /** Offer the Preview entry. */
+  readonly showPreview: boolean
   /** Panel width in pixels; the drawer clamps it to the viewport at render time. */
   readonly panelWidth: number
   /** Ask before Delete commits. */
@@ -89,6 +91,22 @@ export interface AdvancedSidebarSettings {
   readonly filesShowHidden: boolean
   /** External applications offered under Open in; mutable for the same reason as {@link OpenInEditor.args}. */
   editors: OpenInEditor[]
+  /**
+   * Launch configurations offered by the Preview panel, merged after any the workspace's own
+   * `.claude/launch.json` carries. A name declared in both places is taken from the file, so a
+   * repository stays the authority on how to run itself.
+   */
+  previews: PreviewLaunchConfig[]
+  /** Read `.claude/launch.json` from the workspace. */
+  previewsFromLaunchFile: boolean
+  /** How many preview servers may run at once across every workspace. */
+  maxPreviews: number
+  /** How long to wait for a started server's port to accept a connection, in milliseconds. */
+  previewReadyTimeoutMs: number
+  /** Retained preview output in characters; the head is dropped past it. */
+  previewScrollback: number
+  /** TERM-to-KILL grace when a preview server is stopped. */
+  previewGraceMs: number
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -125,6 +143,11 @@ export interface AdvancedSidebarView {
   readonly terminal: CapabilityState
   /** Whether the Host exposes a filesystem this plugin may read. */
   readonly files: CapabilityState
+  /** Whether a preview server can be started, and how many are already running. */
+  readonly preview: CapabilityState & {
+    /** How many preview servers this plugin currently holds open. */
+    readonly running: number
+  }
   /** Whether a job registry is mounted, and what may be done to a record. */
   readonly tasks: CapabilityState & {
     /** A live task can be stopped (registry mounted AND the setting allows it). */
@@ -595,3 +618,191 @@ export type DeleteSessionFailureCode =
 export type DeleteSessionResult =
   | DeleteSessionSuccess
   | { readonly ok: false; readonly code: DeleteSessionFailureCode; readonly message: string }
+
+/* --------------------------------------------------------------------------------------------- */
+/* Preview                                                                                         */
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * One launch configuration: how to start something and where to look at it.
+ *
+ * The field names are Claude Code's `.claude/launch.json` vocabulary on purpose. A repository that
+ * already carries that file gets a working Preview panel with no second configuration to write, and
+ * a repository that does not can put the same rows under `previews` in cordis.yml.
+ */
+export interface PreviewLaunch {
+  /** Unique name inside one workspace; the panel's picker shows it and every request repeats it. */
+  readonly name: string
+  /** Executable to run. Absent makes the row attach-only: it opens {@link url} and starts nothing. */
+  readonly runtimeExecutable?: string
+  /** Arguments for {@link runtimeExecutable}. */
+  readonly runtimeArgs?: readonly string[]
+  /** Port the server listens on; readiness is a TCP connect to it. */
+  readonly port?: number
+  /** Where to point the frame. Absent with a port means `http://127.0.0.1:<port>`. */
+  readonly url?: string
+  /** Directory to run in, relative to the workspace. Absent runs at the workspace root. */
+  readonly cwd?: string
+  /** Extra environment entries for the child. */
+  readonly env?: Readonly<Record<string, string>>
+}
+
+/**
+ * A launch configuration as a `cordis.yml` row states it.
+ *
+ * Structurally {@link PreviewLaunch} with mutable members: a Schemastery `z.array`/`z.object` infers
+ * mutable source types, and a `readonly` member makes the whole section unassignable to its own
+ * schema. The Host reads both through {@link PreviewLaunch}, which this satisfies.
+ */
+export interface PreviewLaunchConfig {
+  /** Unique name inside one workspace. */
+  name: string
+  /** Executable to run; empty makes the row attach-only. */
+  runtimeExecutable: string
+  /** Arguments for the executable. */
+  runtimeArgs: string[]
+  /** Port readiness is probed on; `0` means the row has none. */
+  port: number
+  /** Where to point the frame; empty derives it from the port. */
+  url: string
+  /** Directory to run in, relative to the workspace; empty runs at the root. */
+  cwd: string
+}
+
+/** Where one launch configuration came from, so the panel can say which file to edit. */
+export type PreviewOrigin = 'launch-json' | 'settings'
+
+/** Lifecycle of one preview server. */
+export type PreviewState =
+  /** Nothing is running for this configuration. */
+  | 'stopped'
+  /** The process started; the port has not accepted a connection yet. */
+  | 'starting'
+  /** The port accepts connections, or the row is attach-only. */
+  | 'ready'
+  /** The process exited on its own. */
+  | 'exited'
+  /** The process could not be started, or readiness timed out. */
+  | 'failed'
+
+/** One configuration as the panel should render it. */
+export interface PreviewServerView {
+  /** Handle for every later request; absent while nothing has been started for this row. */
+  readonly serverId?: string
+  /** Echo of {@link PreviewLaunch.name}. */
+  readonly name: string
+  /** Which file the row came from. */
+  readonly origin: PreviewOrigin
+  /** True when the row starts a process rather than only opening a URL. */
+  readonly startable: boolean
+  /** Current lifecycle state. */
+  readonly state: PreviewState
+  /** Where to point the frame, once it is known. */
+  readonly url?: string
+  /** Port readiness is probed on. */
+  readonly port?: number
+  /** Top-level process id while one is running. */
+  readonly pid?: number
+  /** Exit code once the process has ended. */
+  readonly exitCode?: number | null
+  /** Why the row is `failed`, or why it cannot be started. */
+  readonly detail?: string
+  /** Epoch ms the process started. */
+  readonly startedAt?: number
+}
+
+/** List the configurations one workspace offers. */
+export interface PreviewListRequest {
+  /** Absolute Host workspace directory. */
+  readonly workspacePath: string
+}
+
+/** Every configuration plus where they were read from. */
+export interface PreviewListSuccess {
+  readonly ok: true
+  /** Configurations in file order, settings rows after launch.json rows. */
+  readonly servers: readonly PreviewServerView[]
+  /** Absolute path of the launch file that was read, when one existed. */
+  readonly launchFile?: string
+  /** Why the launch file was ignored, when one existed but could not be used. */
+  readonly launchFileError?: string
+}
+
+/** Why a preview request failed. */
+export type PreviewFailureCode =
+  /** No subprocess capability is mounted. */
+  | 'no-subprocess'
+  /** No filesystem capability is mounted. */
+  | 'no-filesystem'
+  /** The workspace path, or a configuration's `cwd`, left the workspace or does not exist. */
+  | 'path-denied'
+  /** No configuration carries the requested name. */
+  | 'unknown-server'
+  /** The row names no executable, so there is nothing to start. */
+  | 'not-startable'
+  /** The executable does not resolve on this Host. */
+  | 'unavailable'
+  /** The process could not be spawned; the message carries the substrate error. */
+  | 'spawn-failed'
+  /** `maxPreviews` servers are already running. */
+  | 'limit-reached'
+  /** The plugin is unloading, so no new server will be started. */
+  | 'closed'
+
+/** A classified preview failure, carried as a value. */
+export interface PreviewFailure {
+  readonly ok: false
+  readonly code: PreviewFailureCode
+  readonly message: string
+}
+
+/** Configuration list, or a classified failure. */
+export type PreviewListResult = PreviewListSuccess | PreviewFailure
+
+/** Start one configuration. */
+export interface PreviewStartRequest {
+  /** Absolute Host workspace directory. */
+  readonly workspacePath: string
+  /** Which configuration to start. */
+  readonly name: string
+}
+
+/** Start outcome; the row is `starting` until its port accepts. */
+export type PreviewStartResult =
+  | { readonly ok: true; readonly server: PreviewServerView }
+  | PreviewFailure
+
+/** Stop one running server. */
+export interface PreviewStopRequest {
+  /** Handle from {@link PreviewServerView.serverId}. */
+  readonly serverId: string
+}
+
+/** Settlement of a stop. */
+export type PreviewStopResult = { readonly ok: true } | PreviewFailure
+
+/** Read one server's output from a caller-owned offset. */
+export interface PreviewLogsRequest {
+  /** Handle from {@link PreviewServerView.serverId}. */
+  readonly serverId: string
+  /** Whole-stream character offset to resume from; `0` reads the retained buffer. */
+  readonly fromOffset: number
+}
+
+/** Output plus the state at read time, so the panel needs one poll rather than two. */
+export interface PreviewLogsSuccess {
+  readonly ok: true
+  /** Echo of the handle. */
+  readonly serverId: string
+  /** Combined stdout and stderr, in arrival order, from the requested offset. */
+  readonly text: string
+  /** Whole-stream character offset to resume from on the next read. */
+  readonly nextOffset: number
+  /** True when the requested offset had already fallen out of the retained buffer. */
+  readonly lossy: boolean
+  /** The server's state at read time. */
+  readonly server: PreviewServerView
+}
+
+/** Log read, or a classified failure. */
+export type PreviewLogsResult = PreviewLogsSuccess | PreviewFailure

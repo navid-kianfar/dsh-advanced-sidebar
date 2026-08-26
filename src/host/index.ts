@@ -31,12 +31,15 @@ import { SessionDeleter } from './deletion.ts'
 import { FileReader } from './files.ts'
 import { GitReader } from './git.ts'
 import { OpenInLauncher } from './open-in.ts'
+import { PreviewServers } from './preview.ts'
 import { PanelTerminals } from './terminals.ts'
 import { TaskController } from './tasks.ts'
 import type {
   AdvancedSidebarSettings, AdvancedSidebarView, DeleteSessionRequest, DeleteSessionResult,
   GitDiffRequest, GitDiffResult, GitStatusRequest, GitStatusResult, ListEntriesRequest,
-  ListEntriesResult, OpenInRequest, OpenInResult,
+  ListEntriesResult, OpenInRequest, OpenInResult, PreviewListRequest, PreviewListResult,
+  PreviewLogsRequest, PreviewLogsResult, PreviewStartRequest, PreviewStartResult,
+  PreviewStopRequest, PreviewStopResult,
   ReadFileRequest, ReadFileResult, TaskKillRequest, TaskKillResult, TaskOutputRequest,
   TaskOutputResult, TerminalAckResult, TerminalCloseRequest, TerminalOpenRequest,
   TerminalOpenResult, TerminalReadRequest, TerminalReadResult, TerminalSignalRequest,
@@ -91,12 +94,38 @@ function validateConfig(value: Config): void {
       throw new TypeError(`advanced-sidebar: editor "${editor.id}" has an empty command`)
     }
   }
+  const names = new Set<string>()
+  for (const preview of value.previews) {
+    if (preview.name.trim() === '') {
+      throw new TypeError('advanced-sidebar: a preview row has an empty name')
+    }
+    if (names.has(preview.name)) {
+      throw new TypeError(`advanced-sidebar: preview name "${preview.name}" is used twice`)
+    }
+    names.add(preview.name)
+    if (preview.runtimeExecutable === '' && preview.url === '' && preview.port <= 0) {
+      throw new TypeError(
+        `advanced-sidebar: preview "${preview.name}" names no command, no url, and no port,`
+        + ' so there is nothing to start and nowhere to point the frame',
+      )
+    }
+  }
   if (value.deleteMode === 'purge' && !value.confirmDelete) {
     throw new TypeError(
       'advanced-sidebar: deleteMode "purge" removes a session log irreversibly, so confirmDelete cannot be false',
     )
   }
 }
+
+/** Schemastery shape of one preview launch row. */
+const PreviewSchema = z.object({
+  name: z.string().required(),
+  runtimeExecutable: z.string().required(),
+  runtimeArgs: z.array(z.string()).required(),
+  port: z.number().step(1).min(0).max(65_535).required(),
+  url: z.string().required(),
+  cwd: z.string().required(),
+})
 
 /** Schemastery shape of one Open in target row. */
 const EditorSchema = z.object({
@@ -119,6 +148,7 @@ export class AdvancedSidebarService extends TypertRemoteService {
     showOpenIn: z.boolean().required(),
     showArchive: z.boolean().required(),
     showDelete: z.boolean().required(),
+    showPreview: z.boolean().required(),
     panelWidth: z.number().step(1).min(280).max(1_400).required(),
     confirmDelete: z.boolean().required(),
     deleteMode: z.union(['archive', 'purge'] as const).required(),
@@ -135,6 +165,12 @@ export class AdvancedSidebarService extends TypertRemoteService {
     filesMaxEntries: z.number().step(1).min(1).max(20_000).required(),
     filesShowHidden: z.boolean().required(),
     editors: z.array(EditorSchema).required(),
+    previews: z.array(PreviewSchema).required(),
+    previewsFromLaunchFile: z.boolean().required(),
+    maxPreviews: z.number().step(1).min(1).max(16).required(),
+    previewReadyTimeoutMs: z.number().step(1).min(1_000).max(600_000).required(),
+    previewScrollback: z.number().step(1).min(1_024).max(4 * 1_024 * 1_024).required(),
+    previewGraceMs: z.number().step(1).min(100).max(60_000).required(),
   })
 
   private source: () => Config
@@ -145,6 +181,7 @@ export class AdvancedSidebarService extends TypertRemoteService {
   private readonly files: FileReader
   private readonly tasks: TaskController
   private readonly deleter: SessionDeleter
+  private readonly preview: PreviewServers
 
   /**
    * @param ctx - Host context; every capability this service uses is resolved optionally, so a
@@ -163,6 +200,7 @@ export class AdvancedSidebarService extends TypertRemoteService {
     this.files = new FileReader(ctx, read)
     this.tasks = new TaskController(ctx, read)
     this.deleter = new SessionDeleter(ctx, read)
+    this.preview = new PreviewServers(ctx, read)
 
     installSettingsSection(ctx, ADVANCED_SIDEBAR_SETTINGS_NAMESPACE, AdvancedSidebarService.Config, config, {
       setSource: (current) => { this.source = current },
@@ -172,12 +210,14 @@ export class AdvancedSidebarService extends TypertRemoteService {
       validate: validateConfig,
     })
 
+    // Fire-and-forget on both process owners: cordis teardown is synchronous, and a panel terminal
+    // or a dev server that outlived the plugin would hold a shell or a port that nothing left can
+    // reach. Each handle's own grace escalation bounds the wait.
     ctx.effect(() => () => {
       this.tasks.dispose()
-      // Fire-and-forget: cordis teardown is synchronous, and a panel terminal that outlived the
-      // plugin would be a shell nobody can reach. The handle's own grace escalation bounds it.
       void this.terminals.disposeAll()
-    }, 'advanced-sidebar: panel terminals + retained task output')
+      void this.preview.disposeAll()
+    }, 'advanced-sidebar: panel terminals, preview servers, retained task output')
   }
 
   /**
@@ -194,6 +234,7 @@ export class AdvancedSidebarService extends TypertRemoteService {
       git: await this.git.describe(signal),
       terminal: this.terminals.describe(),
       files: this.files.describe(),
+      preview: this.preview.describe(),
       tasks: this.tasks.describe(),
       openIn: await this.launcher.describe(signal),
       deletion: {
@@ -289,6 +330,48 @@ export class AdvancedSidebarService extends TypertRemoteService {
   @Remote('listEntries')
   listEntries(request: ListEntriesRequest, signal: AbortSignal): Promise<ListEntriesResult> {
     return this.files.list(request, signal)
+  }
+
+  /**
+   * List one workspace's preview launch configurations, each with its current state.
+   * @param request - the workspace to read.
+   * @param signal - gateway-supplied cancellation for the caller's abandoned request.
+   * @returns the list, or a classified failure.
+   */
+  @Remote('previewList')
+  previewList(request: PreviewListRequest, signal: AbortSignal): Promise<PreviewListResult> {
+    return this.preview.list(request, signal)
+  }
+
+  /**
+   * Start one preview configuration.
+   * @param request - the workspace and the configuration name.
+   * @param signal - gateway-supplied cancellation of the start.
+   * @returns the started row, or a classified failure.
+   */
+  @Remote('previewStart')
+  previewStart(request: PreviewStartRequest, signal: AbortSignal): Promise<PreviewStartResult> {
+    return this.preview.start(request, signal)
+  }
+
+  /**
+   * Stop one running preview server.
+   * @param request - the handle.
+   * @returns settlement, or a classified failure.
+   */
+  @Remote('previewStop')
+  previewStop(request: PreviewStopRequest): Promise<PreviewStopResult> {
+    return this.preview.stop(request)
+  }
+
+  /**
+   * Read one preview server's output from a caller-owned offset, with its state at read time.
+   * @param request - the handle and the offset already rendered.
+   * @returns the delta and the state, or a classified failure.
+   */
+  @Remote('previewLogs')
+  previewLogs(request: PreviewLogsRequest): Promise<PreviewLogsResult> {
+    return Promise.resolve(this.preview.logs(request))
   }
 
   /**

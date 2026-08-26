@@ -98,8 +98,12 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
 
     terminalOpen(directory, cols, rows).then(
       (result) => {
-        if (!live) return
-        if (!result.ok) { setError(result.message); return }
+        if (!result.ok) { if (live) setError(result.message); return }
+        // The allocation can settle AFTER this effect was torn down — the panel closed, or the
+        // directory changed, while the shell was still being started. The cleanup below cannot
+        // close a handle it never saw, so a terminal arriving late closes itself here instead of
+        // leaking a shell nothing can reach.
+        if (!live) { void terminalClose(result.terminalId); return }
         allocated = result.terminalId
         setSession({ terminalId: result.terminalId, shell: result.shell })
       },

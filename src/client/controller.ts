@@ -12,7 +12,7 @@
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 
 /** Which drawer is showing. */
-export type PanelKind = 'changes' | 'terminal' | 'files' | 'tasks'
+export type PanelKind = 'changes' | 'terminal' | 'files' | 'tasks' | 'preview'
 
 /** The session an operation acts on, resolved once at the moment the menu is opened. */
 export interface OperationTarget {

@@ -77,8 +77,8 @@ describe('generated Typert contract', () => {
     const cancellable = descriptors.filter(descriptor => descriptor.cancellation !== undefined)
       .map(descriptor => descriptor.method).sort()
     expect(cancellable).toEqual([
-      'deleteSession', 'describe', 'gitDiff', 'gitStatus', 'listEntries', 'openIn', 'readFile',
-      'terminalOpen',
+      'deleteSession', 'describe', 'gitDiff', 'gitStatus', 'listEntries', 'openIn', 'previewList',
+      'previewStart', 'readFile', 'terminalOpen',
     ])
     for (const descriptor of descriptors) {
       if (descriptor.cancellation !== undefined) expect(descriptor.cancellation.parameter).toBe('signal')
@@ -94,6 +94,10 @@ describe('generated Typert contract', () => {
       openIn: { targetId: 'vscode', path: '/w' },
       readFile: { path: '/w/a.ts', workspacePath: '/w' },
       taskKill: { sessionId: 's-1', taskId: 'bash-1' },
+      previewList: { workspacePath: '/w' },
+      previewLogs: { serverId: 'p-1', fromOffset: 0 },
+      previewStart: { workspacePath: '/w', name: 'dev' },
+      previewStop: { serverId: 'p-1' },
       taskOutput: { sessionId: 's-1', taskId: 'bash-1' },
       terminalClose: { terminalId: 't-1' },
       terminalOpen: { workspacePath: '/w', cols: 80, rows: 24 },
@@ -123,6 +127,7 @@ describe('generated Typert contract', () => {
         terminal: { available: true },
         files: { available: true },
         tasks: { available: true, canKill: true, canReadOutput: true },
+        preview: { available: true, running: 1 },
         openIn: [{ id: 'reveal', label: 'Finder', available: true, kind: 'reveal' }],
         deletion: { canPurge: false, mode: 'archive' },
         readAt: 1,
@@ -137,6 +142,20 @@ describe('generated Typert contract', () => {
         ok: true, path: '/w', entries: [{ name: 'a.ts', path: '/w/a.ts', kind: 'file', size: 3 }], truncated: false,
       },
       openIn: { ok: true },
+      previewList: {
+        ok: true,
+        servers: [{ name: 'dev', origin: 'launch-json', startable: true, state: 'ready', url: 'http://127.0.0.1:3000', port: 3000, pid: 9, startedAt: 1 }],
+        launchFile: '/w/.claude/launch.json',
+      },
+      previewLogs: {
+        ok: true, serverId: 'p-1', text: 'ready in 300ms', nextOffset: 14, lossy: false,
+        server: { name: 'dev', origin: 'settings', startable: true, state: 'ready' },
+      },
+      previewStart: {
+        ok: true,
+        server: { name: 'dev', origin: 'settings', startable: true, state: 'starting', port: 3000 },
+      },
+      previewStop: { ok: true },
       readFile: { ok: true, path: '/w/a.ts', text: 'x', binary: false, truncated: false, bytes: 1 },
       taskKill: { ok: true, outcome: 'requested' },
       taskOutput: { ok: true, taskId: 'bash-1', readable: true, text: 'done' },
@@ -158,6 +177,10 @@ describe('generated Typert contract', () => {
       gitStatus: { ok: false, code: 'not-a-repository', message: 'no repo' },
       listEntries: { ok: false, code: 'path-denied', message: 'outside' },
       openIn: { ok: false, code: 'unavailable', message: 'no code' },
+      previewList: { ok: false, code: 'path-denied', message: 'outside' },
+      previewLogs: { ok: false, code: 'unknown-server', message: 'stopped' },
+      previewStart: { ok: false, code: 'not-startable', message: 'no command' },
+      previewStop: { ok: false, code: 'unknown-server', message: 'stopped' },
       readFile: { ok: false, code: 'not-a-file', message: 'directory' },
       taskKill: { ok: false, code: 'disabled', message: 'off' },
       taskOutput: { ok: false, code: 'no-registry', message: 'absent' },

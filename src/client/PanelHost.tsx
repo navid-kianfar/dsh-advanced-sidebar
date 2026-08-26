@@ -15,6 +15,7 @@ import type { PanelHostProps } from './contract.ts'
 import { cx } from './cx.ts'
 import { ChangesPanel } from './panels/ChangesPanel.tsx'
 import { FilesPanel } from './panels/FilesPanel.tsx'
+import { PreviewPanel } from './panels/PreviewPanel.tsx'
 import { TasksPanel } from './panels/TasksPanel.tsx'
 import { TerminalPanel } from './panels/TerminalPanel.tsx'
 import css from './PanelHost.module.css'
@@ -98,6 +99,7 @@ export function PanelHost(props: PanelHostProps) {
             {panel.panel === 'changes' && <ChangesPanel target={target} t={t} face={props} />}
             {panel.panel === 'terminal' && <TerminalPanel target={target} t={t} face={props} />}
             {panel.panel === 'files' && <FilesPanel target={target} t={t} face={props} />}
+            {panel.panel === 'preview' && <PreviewPanel target={target} t={t} face={props} />}
             {panel.panel === 'tasks' && (
               <TasksPanel target={target} t={t} face={props} useSessions={useSessions} settings={settings} />
             )}

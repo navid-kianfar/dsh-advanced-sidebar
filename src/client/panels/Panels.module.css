@@ -473,3 +473,89 @@
   border-radius: 8px;
   background: var(--dsw-alias-markdown-code-block);
 }
+
+/* --- preview --- */
+
+.toolButtonOn {
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-label-primary);
+}
+
+.toolText {
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.previewPicker {
+  flex: none;
+  max-width: 45%;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.previewPicker:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+
+.addressBar {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.addressBar:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+/* The stage centres the frame and clips whatever a scaled preset leaves outside it. A checkered
+   ground would be noise here; the layer-1 fill is what the rest of the app uses behind content. */
+.previewStage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.previewStageShort {
+  flex: 1 1 55%;
+}
+
+/* A device preset is scaled from its top-left so the page's own top-left stays put; without the
+   origin the frame drifts as the drawer is resized. */
+.previewFrame {
+  flex: none;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--dsw-alias-bg-base);
+  transform-origin: top center;
+}
+
+.previewLogs {
+  flex: 1 1 45%;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
+}
