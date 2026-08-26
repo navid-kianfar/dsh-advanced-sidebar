@@ -14,8 +14,9 @@ import { isStaged, isUnstaged, parsePorcelainV2 } from './porcelain.ts'
 import { resolveInside, resolveWorkspace, type PathOutcome } from './paths.ts'
 import { CommandUnavailableError, resolveCommand, runCommand, type CommandOutcome } from './run.ts'
 import type {
-  AdvancedSidebarSettings, CapabilityState, GitDiffRequest, GitDiffResult, GitFailure,
-  GitFailureCode, GitFileChange, GitStatusRequest, GitStatusResult,
+  AdvancedSidebarSettings, CapabilityState, GitCommitRequest, GitCommitResult, GitDiffRequest,
+  GitDiffResult, GitFailure, GitFailureCode, GitFileChange, GitStageRequest, GitStageResult,
+  GitStatusRequest, GitStatusResult, GitStatusSuccess, GitWriteCapability,
 } from './types.ts'
 
 /**
@@ -130,6 +131,7 @@ export class GitReader {
     const conflicted = changes.filter(change => change.conflicted)
     return {
       ok: true,
+      write: await this.writeCapability(repository.root, signal),
       repositoryRoot: repository.root,
       prefix: repository.prefix,
       ...parsed.branch.branch === undefined ? {} : { branch: parsed.branch.branch },
@@ -157,18 +159,8 @@ export class GitReader {
     if ('failure' in prepared) return prepared.failure
     const { repository } = prepared
 
-    // The path is untrusted input at a process boundary. Every other endpoint proves containment
-    // through `ctx.fs`, and so must this one: `--no-index` makes git read an arbitrary file and
-    // return it as a patch, so an unchecked `../../../etc/passwd` would be an exfiltration route,
-    // and even the tracked forms would read outside the repository the caller asked about.
-    const root = await resolveWorkspace(this.ctx, repository.root, signal)
-    if (!root.ok) return fail(root.rejection.code, root.rejection.message)
-    // `resolve`, not `join`: joining a root with an ABSOLUTE path re-roots it under the repository
-    // (`join('/repo', '/etc/hosts')` is `/repo/etc/hosts`), so the containment check would pass and
-    // git would then be handed the original `/etc/hosts` anyway. `resolve` keeps an absolute path
-    // absolute, which is exactly what the check needs to see.
-    const inside = await resolveInside(this.ctx, root.value, resolve(repository.root, request.path), signal)
-    if (!inside.ok) return fail(inside.rejection.code, inside.rejection.message)
+    const contained = await this.contain(repository.root, [request.path], signal)
+    if (contained !== undefined) return contained
 
     // `--` and a repository-relative path, never a pattern: a path from the browser must not be
     // able to become an option (`--output=…`) or a pathspec magic word.
@@ -199,6 +191,197 @@ export class GitReader {
       binary: /^Binary files .* differ$/mu.test(patch),
       truncated,
     }
+  }
+
+  /**
+   * Stage paths.
+   * @param request - the workspace and the repository-relative paths to add.
+   * @param signal - cancellation for the write and the reading that follows it.
+   * @returns the reading after the write, or a classified failure.
+   */
+  stage(request: GitStageRequest, signal?: AbortSignal): Promise<GitStageResult> {
+    if (!this.source().allowGitStaging) {
+      return Promise.resolve(fail('disabled', 'staging is switched off in the advanced-sidebar settings'))
+    }
+    // `--` then literal paths: `add` takes PATHSPECS, so without it a path beginning `:` would be
+    // read as pathspec magic (`:(exclude)`, `:/`) and stage something the operator did not pick.
+    return this.write(request, signal, paths => ['add', '--', ...paths])
+  }
+
+  /**
+   * Unstage paths, leaving the working tree untouched.
+   * @param request - the workspace and the repository-relative paths to restore.
+   * @param signal - cancellation for the write and the reading that follows it.
+   * @returns the reading after the write, or a classified failure.
+   */
+  unstage(request: GitStageRequest, signal?: AbortSignal): Promise<GitStageResult> {
+    if (!this.source().allowGitStaging) {
+      return Promise.resolve(fail('disabled', 'staging is switched off in the advanced-sidebar settings'))
+    }
+    // `restore --staged`, not `reset`: it touches the index only, and it is the one spelling that
+    // works the same before and after the first commit. `reset HEAD -- <path>` fails on an unborn
+    // branch, which is exactly when a person is most likely to be staging by hand.
+    return this.write(request, signal, paths => ['restore', '--staged', '--', ...paths])
+  }
+
+  /**
+   * Record the staged changes.
+   *
+   * The message crosses as one argv element, so no shell ever sees it and nothing in it can become
+   * an option. Hooks run: a `pre-commit` that refuses is a real answer, and its stderr is returned
+   * verbatim rather than summarized.
+   * @param request - the workspace, the message, and whether to replace the previous commit.
+   * @param signal - cancellation for the commit and the reading that follows it.
+   * @returns the new commit and the reading after it, or a classified failure.
+   */
+  async commit(request: GitCommitRequest, signal?: AbortSignal): Promise<GitCommitResult> {
+    const settings = this.source()
+    if (!settings.allowGitCommit) {
+      return fail('disabled', 'committing is switched off in the advanced-sidebar settings')
+    }
+    const message = request.message.trim()
+    if (message === '') return fail('empty-message', 'a commit needs a message')
+
+    const prepared = await this.prepare(request.workspacePath, signal)
+    if ('failure' in prepared) return prepared.failure
+    const { repository } = prepared
+
+    if ((await this.author(repository.root, signal)) === undefined) {
+      return fail(
+        'no-identity',
+        'git has no user.name and user.email, so it has no author to record;'
+        + ' set them with `git config --global user.name` and `git config --global user.email`',
+      )
+    }
+    // Amending has something to record even with an empty index, so the guard applies only to an
+    // ordinary commit — where git's own refusal is a long paragraph about how to stage things.
+    if (!request.amend && !(await this.hasStaged(repository.root, signal))) {
+      return fail('nothing-staged', 'nothing is staged, so there is nothing to commit')
+    }
+
+    const outcome = await this.git(
+      repository.root,
+      ['commit', ...request.amend ? ['--amend'] : [], '-m', message],
+      signal,
+      undefined,
+      settings.gitCommitTimeoutMs,
+    )
+    if (outcome.exitCode !== 0) return classify(outcome)
+
+    const described = await this.git(repository.root, ['log', '-1', '--format=%h%n%s'], signal)
+    const [commit, subject] = described.stdout.split('\n')
+    const status = await this.status({ workspacePath: request.workspacePath }, signal)
+    if (!status.ok) return status
+    return {
+      ok: true,
+      commit: (commit ?? '').trim(),
+      subject: (subject ?? '').trim(),
+      status,
+      notes: outcome.stderr.trim(),
+    }
+  }
+
+  /**
+   * Run one index write over contained paths, then re-read the repository.
+   * @param request - the workspace and the paths.
+   * @param signal - cancellation for both invocations.
+   * @param argv - builds the git arguments from the accepted paths.
+   * @returns the reading after the write, or a classified failure.
+   */
+  private async write(
+    request: GitStageRequest,
+    signal: AbortSignal | undefined,
+    argv: (paths: readonly string[]) => readonly string[],
+  ): Promise<GitStageResult> {
+    if (request.paths.length === 0) return fail('path-denied', 'no paths were given')
+    const prepared = await this.prepare(request.workspacePath, signal)
+    if ('failure' in prepared) return prepared.failure
+    const { repository } = prepared
+
+    const contained = await this.contain(repository.root, request.paths, signal)
+    if (contained !== undefined) return contained
+
+    const outcome = await this.git(repository.root, argv(request.paths), signal)
+    if (outcome.exitCode !== 0) return classify(outcome)
+    // The reading rides the same response: a panel that had to ask again would show the old lists
+    // for a round trip, and a person clicking Stage twice in that window would stage nothing.
+    const status = await this.status({ workspacePath: request.workspacePath }, signal)
+    return status.ok ? { ok: true, status } : status
+  }
+
+  /**
+   * Prove every path sits inside the repository before git is handed any of them.
+   *
+   * A path from the browser is untrusted input at a process boundary. `git add` and
+   * `git restore` both accept absolute paths and `..`, and `git diff --no-index` will read any file
+   * at all — so an unchecked path is a write outside the repository in one direction and an
+   * exfiltration route in the other.
+   * @param root - absolute repository root.
+   * @param paths - repository-relative paths, as the browser sent them.
+   * @param signal - cancellation for the resolutions.
+   * @returns the failure to return, or undefined when every path is inside.
+   */
+  private async contain(
+    root: string, paths: readonly string[], signal?: AbortSignal,
+  ): Promise<GitFailure | undefined> {
+    const resolved = await resolveWorkspace(this.ctx, root, signal)
+    if (!resolved.ok) return fail(resolved.rejection.code, resolved.rejection.message)
+    for (const path of paths) {
+      // `resolve`, not `join`: joining a root with an ABSOLUTE path re-roots it under the
+      // repository (`join('/repo', '/etc/hosts')` is `/repo/etc/hosts`), so the check would pass
+      // and git would then be handed the original `/etc/hosts` anyway. `resolve` keeps an absolute
+      // path absolute, which is exactly what the check needs to see.
+      const inside = await resolveInside(this.ctx, resolved.value, resolve(root, path), signal)
+      if (!inside.ok) return fail(inside.rejection.code, inside.rejection.message)
+    }
+    return undefined
+  }
+
+  /**
+   * The author `git commit` would record.
+   * @param cwd - the repository root.
+   * @param signal - cancellation for the invocation.
+   * @returns `Name <email>`, or undefined when git has no identity configured.
+   */
+  private async author(cwd: string, signal?: AbortSignal): Promise<string | undefined> {
+    // `var GIT_AUTHOR_IDENT` is git's own answer to "who would this commit be by", and it fails
+    // exactly when a commit would — rather than checking two config keys and guessing at the rules
+    // that combine them.
+    const outcome = await this.git(cwd, ['var', 'GIT_AUTHOR_IDENT'], signal)
+    if (outcome.exitCode !== 0) return undefined
+    // `Name <email> 1700000000 +0000` — the timestamp is git's, not the identity.
+    const ident = outcome.stdout.trim()
+    const at = ident.lastIndexOf('>')
+    return at < 0 ? undefined : ident.slice(0, at + 1)
+  }
+
+  /**
+   * Whether the index differs from HEAD.
+   * @param cwd - the repository root.
+   * @param signal - cancellation for the invocation.
+   * @returns true when a commit would record something.
+   */
+  private async hasStaged(cwd: string, signal?: AbortSignal): Promise<boolean> {
+    // `diff --cached --quiet` exits 1 when there IS a difference, which is the whole test. On an
+    // unborn branch there is no HEAD to compare against, and git exits non-zero there too — which
+    // is the right answer, because the first commit records whatever is in the index.
+    const outcome = await this.git(cwd, ['diff', '--cached', '--quiet'], signal)
+    return outcome.exitCode !== 0
+  }
+
+  /**
+   * Report what the panel may do to this repository.
+   * @param cwd - the repository root.
+   * @param signal - cancellation for the identity lookup.
+   * @returns the write capability.
+   */
+  private async writeCapability(cwd: string, signal?: AbortSignal): Promise<GitWriteCapability> {
+    const settings = this.source()
+    const canStage = settings.allowGitStaging
+    // Commit without staging would be a button with no way to fill the index it needs.
+    const canCommit = canStage && settings.allowGitCommit
+    const author = canCommit ? await this.author(cwd, signal) : undefined
+    return { canStage, canCommit, ...author === undefined ? {} : { author } }
   }
 
   /**
@@ -244,7 +427,7 @@ export class GitReader {
    * @returns the finished command.
    */
   private async git(
-    cwd: string, args: readonly string[], signal?: AbortSignal, maxBytes?: number,
+    cwd: string, args: readonly string[], signal?: AbortSignal, maxBytes?: number, timeoutMs?: number,
   ): Promise<CommandOutcome> {
     const executable = await this.locate(signal)
     if (executable === undefined) {
@@ -260,14 +443,23 @@ export class GitReader {
     return runCommand(this.ctx, {
       argv: [executable, ...args],
       cwd,
-      timeoutMs: settings.gitTimeoutMs,
+      timeoutMs: timeoutMs ?? settings.gitTimeoutMs,
       // The caller's own bound where it has one, so the collector and the endpoint truncate at the
       // same place; a status reading gets room for a very large repository.
       maxBytes: maxBytes ?? Math.max(settings.gitDiffMaxBytes, 1 << 20),
       // git needs no grace period of its own: it holds no children and exits on TERM.
       graceMs: 1_000,
       // A pager would never exit, and locale-dependent output would break the parsers.
-      env: { GIT_PAGER: 'cat', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' },
+      env: {
+        GIT_PAGER: 'cat',
+        GIT_OPTIONAL_LOCKS: '0',
+        LC_ALL: 'C',
+        // A commit with no `-m` would open an editor and hang until the timeout; `true` makes git
+        // fail immediately instead. Every commit here passes `-m`, so this only ever fires for a
+        // hook that tries to open one.
+        GIT_EDITOR: 'true',
+        GIT_TERMINAL_PROMPT: '0',
+      },
     }, signal)
   }
 

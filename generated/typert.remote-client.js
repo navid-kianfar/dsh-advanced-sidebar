@@ -74,6 +74,9 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_describe_result$schema = z.
   'gitMaxFiles': z.number().readonly(),
   'gitDiffMaxBytes': z.number().readonly(),
   'gitTimeoutMs': z.number().readonly(),
+  'gitCommitTimeoutMs': z.number().readonly(),
+  'allowGitStaging': z.boolean().readonly(),
+  'allowGitCommit': z.boolean().readonly(),
   'terminalShell': z.string().readonly(),
   'terminalScrollback': z.number().readonly(),
   'maxTerminals': z.number().readonly(),
@@ -117,7 +120,7 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitDiff_result$schema = z.u
   'truncated': z.boolean().readonly(),
 }), z.object({
   'ok': z.literal(false).readonly(),
-  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied")]).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity")]).readonly(),
   'message': z.string().readonly(),
 })])
 const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStatus_parameter_0$schema = z.object({
@@ -125,6 +128,11 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStatus_parameter_0$schem
 })
 const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStatus_result$schema = z.union([z.object({
   'ok': z.literal(true).readonly(),
+  'write': z.object({
+  'canStage': z.boolean().readonly(),
+  'canCommit': z.boolean().readonly(),
+  'author': z.string().readonly().optional(),
+}).readonly(),
   'repositoryRoot': z.string().readonly(),
   'prefix': z.string().readonly(),
   'branch': z.string().readonly().optional(),
@@ -168,7 +176,191 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStatus_result$schema = z
   'readAt': z.number().readonly(),
 }), z.object({
   'ok': z.literal(false).readonly(),
-  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied")]).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity")]).readonly(),
+  'message': z.string().readonly(),
+})])
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStage_parameter_0$schema = z.object({
+  'workspacePath': z.string().readonly(),
+  'paths': z.array(z.string()).readonly(),
+})
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStage_result$schema = z.union([z.object({
+  'ok': z.literal(true).readonly(),
+  'status': z.object({
+  'ok': z.literal(true).readonly(),
+  'write': z.object({
+  'canStage': z.boolean().readonly(),
+  'canCommit': z.boolean().readonly(),
+  'author': z.string().readonly().optional(),
+}).readonly(),
+  'repositoryRoot': z.string().readonly(),
+  'prefix': z.string().readonly(),
+  'branch': z.string().readonly().optional(),
+  'upstream': z.string().readonly().optional(),
+  'ahead': z.number().readonly(),
+  'behind': z.number().readonly(),
+  'detached': z.boolean().readonly(),
+  'staged': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'unstaged': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'untracked': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'conflicted': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'truncated': z.boolean().readonly(),
+  'readAt': z.number().readonly(),
+}).readonly(),
+}), z.object({
+  'ok': z.literal(false).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity")]).readonly(),
+  'message': z.string().readonly(),
+})])
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitUnstage_parameter_0$schema = z.object({
+  'workspacePath': z.string().readonly(),
+  'paths': z.array(z.string()).readonly(),
+})
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitUnstage_result$schema = z.union([z.object({
+  'ok': z.literal(true).readonly(),
+  'status': z.object({
+  'ok': z.literal(true).readonly(),
+  'write': z.object({
+  'canStage': z.boolean().readonly(),
+  'canCommit': z.boolean().readonly(),
+  'author': z.string().readonly().optional(),
+}).readonly(),
+  'repositoryRoot': z.string().readonly(),
+  'prefix': z.string().readonly(),
+  'branch': z.string().readonly().optional(),
+  'upstream': z.string().readonly().optional(),
+  'ahead': z.number().readonly(),
+  'behind': z.number().readonly(),
+  'detached': z.boolean().readonly(),
+  'staged': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'unstaged': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'untracked': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'conflicted': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'truncated': z.boolean().readonly(),
+  'readAt': z.number().readonly(),
+}).readonly(),
+}), z.object({
+  'ok': z.literal(false).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity")]).readonly(),
+  'message': z.string().readonly(),
+})])
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitCommit_parameter_0$schema = z.object({
+  'workspacePath': z.string().readonly(),
+  'message': z.string().readonly(),
+  'amend': z.boolean().readonly(),
+})
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitCommit_result$schema = z.union([z.object({
+  'ok': z.literal(true).readonly(),
+  'commit': z.string().readonly(),
+  'subject': z.string().readonly(),
+  'status': z.object({
+  'ok': z.literal(true).readonly(),
+  'write': z.object({
+  'canStage': z.boolean().readonly(),
+  'canCommit': z.boolean().readonly(),
+  'author': z.string().readonly().optional(),
+}).readonly(),
+  'repositoryRoot': z.string().readonly(),
+  'prefix': z.string().readonly(),
+  'branch': z.string().readonly().optional(),
+  'upstream': z.string().readonly().optional(),
+  'ahead': z.number().readonly(),
+  'behind': z.number().readonly(),
+  'detached': z.boolean().readonly(),
+  'staged': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'unstaged': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'untracked': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'conflicted': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'truncated': z.boolean().readonly(),
+  'readAt': z.number().readonly(),
+}).readonly(),
+  'notes': z.string().readonly(),
+}), z.object({
+  'ok': z.literal(false).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity")]).readonly(),
   'message': z.string().readonly(),
 })])
 const _achasoft_dsh_advanced_sidebar_advancedSidebar_listEntries_parameter_0$schema = z.object({
@@ -426,7 +618,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#DeleteSessionResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_deleteSession_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":427,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":464,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/describe',
@@ -443,7 +635,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#AdvancedSidebarView',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_describe_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":230,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":234,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/gitDiff',
@@ -469,7 +661,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#GitDiffResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitDiff_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":270,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":274,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/gitStatus',
@@ -495,7 +687,85 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#GitStatusResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStatus_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":259,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":263,"column":3},
+    },
+    {
+      id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/gitStage',
+      service: 'advancedSidebar',
+      namespace: 'advancedSidebar',
+      method: 'gitStage',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '../src/host/types.ts#GitStageRequest',
+            schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStage_parameter_0$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '../src/host/types.ts#GitStageResult',
+        schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStage_result$schema,
+      },
+      sourceLocation: {"file":"src/host/index.ts","line":285,"column":3},
+    },
+    {
+      id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/gitUnstage',
+      service: 'advancedSidebar',
+      namespace: 'advancedSidebar',
+      method: 'gitUnstage',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '../src/host/types.ts#GitStageRequest',
+            schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitUnstage_parameter_0$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '../src/host/types.ts#GitStageResult',
+        schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitUnstage_result$schema,
+      },
+      sourceLocation: {"file":"src/host/index.ts","line":296,"column":3},
+    },
+    {
+      id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/gitCommit',
+      service: 'advancedSidebar',
+      namespace: 'advancedSidebar',
+      method: 'gitCommit',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '../src/host/types.ts#GitCommitRequest',
+            schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitCommit_parameter_0$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '../src/host/types.ts#GitCommitResult',
+        schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitCommit_result$schema,
+      },
+      sourceLocation: {"file":"src/host/index.ts","line":307,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/listEntries',
@@ -521,7 +791,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#ListEntriesResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_listEntries_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":332,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":369,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/openIn',
@@ -547,7 +817,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#OpenInResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_openIn_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":396,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":433,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/previewList',
@@ -573,7 +843,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#PreviewListResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewList_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":343,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":380,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/previewLogs',
@@ -598,7 +868,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#PreviewLogsResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewLogs_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":374,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":411,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/previewStart',
@@ -624,7 +894,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#PreviewStartResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewStart_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":354,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":391,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/previewStop',
@@ -649,7 +919,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#PreviewStopResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewStop_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":364,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":401,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/readFile',
@@ -675,7 +945,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#ReadFileResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_readFile_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":385,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":422,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/taskKill',
@@ -700,7 +970,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#TaskKillResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_taskKill_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":406,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":443,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/taskOutput',
@@ -725,7 +995,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#TaskOutputResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_taskOutput_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":416,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":453,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/terminalClose',
@@ -750,7 +1020,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#TerminalAckResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_terminalClose_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":321,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":358,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/terminalOpen',
@@ -776,7 +1046,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#TerminalOpenResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_terminalOpen_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":281,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":318,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/terminalRead',
@@ -801,7 +1071,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#TerminalReadResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_terminalRead_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":291,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":328,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/terminalSignal',
@@ -826,7 +1096,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#TerminalAckResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_terminalSignal_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":311,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":348,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/terminalWrite',
@@ -851,7 +1121,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#TerminalAckResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_terminalWrite_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":301,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":338,"column":3},
     },
   ],
 }

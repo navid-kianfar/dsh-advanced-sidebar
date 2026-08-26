@@ -73,8 +73,18 @@ export interface AdvancedSidebarSettings {
   readonly gitMaxFiles: number
   /** Largest patch, in bytes, one diff reading returns. */
   readonly gitDiffMaxBytes: number
-  /** Wall-clock bound on each `git` invocation. */
+  /** Wall-clock bound on each `git` invocation that only reads. */
   readonly gitTimeoutMs: number
+  /**
+   * Wall-clock bound on `git commit`, which is separate because it is the one invocation that runs
+   * somebody else's code: a `pre-commit` hook can take far longer than any reading, and killing it
+   * mid-run would leave the index locked.
+   */
+  readonly gitCommitTimeoutMs: number
+  /** Offer Stage and Unstage in the Changes panel. */
+  readonly allowGitStaging: boolean
+  /** Offer Commit in the Changes panel; requires {@link allowGitStaging}. */
+  readonly allowGitCommit: boolean
   /** Shell for the panel terminal; empty resolves `$SHELL`, then the platform default. */
   readonly terminalShell: string
   /** Retained terminal output in characters; the head is dropped past it. */
@@ -232,6 +242,8 @@ export interface GitStatusSuccess {
   readonly conflicted: readonly GitFileChange[]
   /** True when the reading stopped at `gitMaxFiles` and the lists are incomplete. */
   readonly truncated: boolean
+  /** What the panel may do to this repository, and who a commit would be authored by. */
+  readonly write: GitWriteCapability
   /** Epoch ms of the reading. */
   readonly readAt: number
 }
@@ -252,6 +264,29 @@ export type GitFailureCode =
   | 'cancelled'
   /** The requested path left the workspace it was asked about. */
   | 'path-denied'
+  /** The operation is switched off in the advanced-sidebar settings. */
+  | 'disabled'
+  /** `git commit` was asked for with nothing staged. */
+  | 'nothing-staged'
+  /** `git commit` was asked for with a blank message. */
+  | 'empty-message'
+  /** git has no `user.name`/`user.email`, so it has no author to record. */
+  | 'no-identity'
+
+/** Whether the repository can be written from the panel, and whether it could commit right now. */
+export interface GitWriteCapability {
+  /** Staging and unstaging are offered. */
+  readonly canStage: boolean
+  /** Committing is offered. */
+  readonly canCommit: boolean
+  /**
+   * Author identity `git commit` would use, as `Name <email>`.
+   *
+   * Absent means git has none configured, and a commit would fail with its own long explanation.
+   * Reported here so the panel can say so before the button is pressed rather than after.
+   */
+  readonly author?: string
+}
 
 /** A classified git failure, carried as a value. */
 export interface GitFailure {
@@ -296,6 +331,59 @@ export interface GitDiffSuccess {
 
 /** Patch for one path, or a classified failure. */
 export type GitDiffResult = GitDiffSuccess | GitFailure
+
+/** Move paths into or out of the index. */
+export interface GitStageRequest {
+  /** Absolute Host directory the status reading came from. */
+  readonly workspacePath: string
+  /**
+   * Repository-relative POSIX paths, exactly as {@link GitFileChange.path} spelled them.
+   *
+   * Every one is proved to sit inside the repository before git sees it, and each is passed after
+   * `--` as a literal path rather than a pathspec, so neither an option nor a glob can be smuggled
+   * through. An empty list is refused.
+   */
+  readonly paths: readonly string[]
+}
+
+/** Settlement of a stage or unstage, carrying the reading that follows it. */
+export interface GitWriteSuccess {
+  readonly ok: true
+  /** The repository state after the write, so the panel needs no second round trip. */
+  readonly status: GitStatusSuccess
+}
+
+/** Stage/unstage outcome. */
+export type GitStageResult = GitWriteSuccess | GitFailure
+
+/** Record the staged changes. */
+export interface GitCommitRequest {
+  /** Absolute Host directory the status reading came from. */
+  readonly workspacePath: string
+  /** Commit message; passed as one argument to `-m`, never interpreted by a shell. */
+  readonly message: string
+  /** Replace the previous commit instead of adding one. */
+  readonly amend: boolean
+}
+
+/** A recorded commit, with the reading that follows it. */
+export interface GitCommitSuccess {
+  readonly ok: true
+  /** Abbreviated hash of the new commit. */
+  readonly commit: string
+  /** First line of the recorded message. */
+  readonly subject: string
+  /** The repository state after the commit. */
+  readonly status: GitStatusSuccess
+  /**
+   * Anything the commit printed on stderr while still succeeding — a hook's advice, a warning.
+   * Empty for an ordinary commit.
+   */
+  readonly notes: string
+}
+
+/** Commit outcome. */
+export type GitCommitResult = GitCommitSuccess | GitFailure
 
 /* --------------------------------------------------------------------------------------------- */
 /* Terminal                                                                                        */

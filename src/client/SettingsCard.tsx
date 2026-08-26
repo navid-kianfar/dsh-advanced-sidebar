@@ -208,6 +208,8 @@ export function SettingsCard(props: SettingsCardProps) {
                   />
                 )}
               />
+              {toggle('allowGitStaging', t('settings.allowGitStaging'), t('settings.allowGitStaging.hint'), value.allowGitStaging)}
+              {toggle('allowGitCommit', t('settings.allowGitCommit'), t('settings.allowGitCommit.hint'), value.allowGitCommit)}
               {toggle('previewsFromLaunchFile', t('settings.previewsFromLaunchFile'), t('settings.previewsFromLaunchFile.hint'), value.previewsFromLaunchFile)}
               {toggle('allowTaskKill', t('settings.allowTaskKill'), t('settings.allowTaskKill.hint'), value.allowTaskKill)}
               {toggle('showTaskOutput', t('settings.showTaskOutput'), t('settings.showTaskOutput.hint'), value.showTaskOutput)}
@@ -218,6 +220,7 @@ export function SettingsCard(props: SettingsCardProps) {
               {number('panelWidth', t('settings.panelWidth'), t('settings.panelWidth.hint'), value.panelWidth, 280, 1_400)}
               {number('gitMaxFiles', t('settings.gitMaxFiles'), t('settings.gitMaxFiles.hint'), value.gitMaxFiles, 1, 10_000)}
               {number('gitTimeoutMs', t('settings.gitTimeoutMs'), t('settings.gitTimeoutMs.hint'), value.gitTimeoutMs, 1_000, 600_000)}
+              {number('gitCommitTimeoutMs', t('settings.gitCommitTimeoutMs'), t('settings.gitCommitTimeoutMs.hint'), value.gitCommitTimeoutMs, 1_000, 1_800_000)}
               {number('maxTerminals', t('settings.maxTerminals'), t('settings.maxTerminals.hint'), value.maxTerminals, 1, 32)}
               {number('maxPreviews', t('settings.maxPreviews'), t('settings.maxPreviews.hint'), value.maxPreviews, 1, 16)}
               {number('previewReadyTimeoutMs', t('settings.previewReadyTimeoutMs'), t('settings.previewReadyTimeoutMs.hint'), value.previewReadyTimeoutMs, 1_000, 600_000)}

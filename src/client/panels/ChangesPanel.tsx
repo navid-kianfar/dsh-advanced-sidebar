@@ -1,18 +1,24 @@
 /**
- * The Changes panel: what git reports as uncommitted in the session's working directory, with each
- * file's patch on demand.
+ * The Changes panel: what git reports as uncommitted in the session's working directory, each
+ * file's patch on demand, and the two writes that turn a reading into a commit.
  *
- * Read-only by design. Staging, discarding, and committing are repository writes with consequences
- * a sidebar cannot make legible, and every one of them is one keystroke away in the Terminal panel
- * beside it.
+ * Staging and committing are offered; DISCARDING is not. Stage, unstage, and commit are all
+ * recoverable — the working tree is untouched by the first two, and a commit stays in the reflog —
+ * while discarding destroys uncommitted work with nothing left to recover it from. A sidebar is the
+ * wrong place for the one irreversible verb in the set, and `git restore` is a keystroke away in
+ * the Terminal panel beside it.
+ *
+ * Every write returns the reading that follows it, so the lists never lag a round trip behind the
+ * index they describe.
  * @module @achasoft/dsh-advanced-sidebar/client/panels/ChangesPanel
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  IconChevronDownOutline14, IconChevronRightOutline14, IconCopyOutline16, IconRefreshOutline14,
+  IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14, IconCloseOutline16,
+  IconCopyOutline16, IconLoadingOutline16, IconRefreshOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { GitDiffResult, GitFileChange, GitStatusResult } from '../../host/types.ts'
+import type { GitDiffResult, GitFileChange, GitStatusResult, GitStatusSuccess } from '../../host/types.ts'
 import type { Translate } from '../contract.ts'
 import { cx } from '../cx.ts'
 import { PathText, transportMessage, useLatest, type PanelProps } from './shared.tsx'
@@ -123,8 +129,12 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
   useEffect(() => () => { window.clearTimeout(copiedTimer.current) }, [])
 
   const directory = target.directory
-  const { gitStatus, gitDiff, copy } = face
+  const { gitStatus, gitDiff, gitStage, gitUnstage, gitCommit, copy, notify } = face
   const latest = useLatest(t)
+  const [message, setMessage] = useState('')
+  const [amend, setAmend] = useState(false)
+  /** The write in flight; one at a time, because two overlapping index writes would race. */
+  const [writing, setWriting] = useState(false)
 
   useEffect(() => {
     if (directory === undefined) return
@@ -177,6 +187,65 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
   }, [status])
 
   const total = groups.reduce((sum, [, rows]) => sum + rows.length, 0)
+  const write = status?.ok === true ? status.write : undefined
+  const stagedCount = status?.ok === true ? status.staged.length : 0
+
+  /**
+   * Run one index write and adopt the reading it returns.
+   * @param run - the endpoint call.
+   */
+  const commitWrite = useCallback((run: () => Promise<{ ok: true; status: GitStatusSuccess } | { ok: false; message: string }>) => {
+    setWriting(true)
+    run().then(
+      (result) => {
+        setWriting(false)
+        if (!result.ok) { notify('error', result.message); return }
+        setStatus(result.status)
+        // The patches described the previous index. Keeping them would show a staged file's diff
+        // as if it were still unstaged, so they go with the reading they belonged to.
+        setDiffs({})
+        setExpanded(undefined)
+      },
+      (reason: unknown) => {
+        setWriting(false)
+        notify('error', transportMessage(reason, latest.current))
+      },
+    )
+  }, [notify, latest])
+
+  const stage = useCallback((paths: readonly string[]) => {
+    if (directory === undefined || paths.length === 0) return
+    commitWrite(() => gitStage(directory, paths))
+  }, [commitWrite, directory, gitStage])
+
+  const unstage = useCallback((paths: readonly string[]) => {
+    if (directory === undefined || paths.length === 0) return
+    commitWrite(() => gitUnstage(directory, paths))
+  }, [commitWrite, directory, gitUnstage])
+
+  const record = useCallback(() => {
+    if (directory === undefined) return
+    setWriting(true)
+    gitCommit(directory, message, amend).then(
+      (result) => {
+        setWriting(false)
+        if (!result.ok) { notify('error', result.message); return }
+        setStatus(result.status)
+        setDiffs({})
+        setExpanded(undefined)
+        setMessage('')
+        setAmend(false)
+        notify('info', latest.current('changes.commit.done', { commit: result.commit, subject: result.subject }))
+        // A hook's advice is worth surfacing on its own: it explains a commit that succeeded but
+        // reformatted something, which the success line alone would hide.
+        if (result.notes !== '') notify('info', result.notes)
+      },
+      (reason: unknown) => {
+        setWriting(false)
+        notify('error', transportMessage(reason, latest.current))
+      },
+    )
+  }, [amend, directory, gitCommit, message, notify, latest])
 
   return (
     <>
@@ -206,33 +275,122 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
         </button>
       </div>
 
+      {write?.canCommit === true && (
+        <div className={css.commitBox}>
+          <textarea
+            className={css.commitMessage}
+            aria-label={t('changes.commit.message')}
+            placeholder={t('changes.commit.placeholder')}
+            rows={2}
+            spellCheck={false}
+            disabled={writing}
+            value={message}
+            onChange={(event) => { setMessage(event.target.value) }}
+            onKeyDown={(event) => {
+              // The message is multi-line, so plain Enter must insert one; the modifier chord is
+              // what every commit box in every editor uses to send.
+              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault()
+                if (!writing && message.trim() !== '') record()
+              }
+            }}
+          />
+          <div className={css.commitRow}>
+            <label className={css.commitAmend}>
+              <input
+                type="checkbox"
+                className={css.commitCheckbox}
+                disabled={writing}
+                checked={amend}
+                onChange={(event) => { setAmend(event.target.checked) }}
+              />
+              {t('changes.commit.amend')}
+            </label>
+            <span className={css.spacer} />
+            <button
+              type="button"
+              className={css.commitButton}
+              // Amending has something to record with an empty index; an ordinary commit does not.
+              disabled={writing || message.trim() === '' || (stagedCount === 0 && !amend)}
+              onClick={record}
+            >
+              {writing ? <IconLoadingOutline16 /> : null}
+              {stagedCount === 0
+                ? t('changes.commit')
+                // Counted copy takes one key per plural form: English needs "1 file" against
+                // "2 files", and a single template would print "1 files" for the commonest case.
+                : t(stagedCount === 1 ? 'changes.commit.count.one' : 'changes.commit.count.other', { n: stagedCount })}
+            </button>
+          </div>
+          <p className={css.commitHint}>
+            {write.author === undefined
+              ? t('changes.commit.noIdentity')
+              : t('changes.commit.author', { author: write.author })}
+          </p>
+        </div>
+      )}
+
       <div className={css.scroll}>
         {error !== undefined && <p className={css.error}>{error}</p>}
         {status === undefined && error === undefined && <p className={css.quiet}>{t('panel.loading')}</p>}
         {status?.ok === false && <p className={css.error}>{status.message}</p>}
         {status?.ok === true && total === 0 && <p className={css.quiet}>{t('changes.empty')}</p>}
+        {status?.ok === true && write?.canStage === false && total > 0 && (
+          <p className={css.quiet}>{t('changes.readOnly')}</p>
+        )}
         {status?.ok === true && groups.map(([group, rows]) => (rows.length === 0 ? null : (
           <section key={group} className={css.group}>
             <h3 className={css.groupTitle}>
               {t(`changes.group.${group}` as 'changes.group.staged')}
               <span className={css.groupCount}>{rows.length}</span>
+              {write?.canStage === true && group !== 'conflicted' && (
+                <button
+                  type="button"
+                  className={css.groupAction}
+                  disabled={writing}
+                  onClick={() => {
+                    const paths = rows.map(row => row.path)
+                    if (group === 'staged') unstage(paths)
+                    else stage(paths)
+                  }}
+                >
+                  {group === 'staged' ? t('changes.unstage.all') : t('changes.stage.all')}
+                </button>
+              )}
             </h3>
             {rows.map((change) => {
               const key = rowKey(group, change)
               const open = expanded === key
               const state = diffs[key]
               return (
-                <div key={key} className={css.fileBlock}>
-                  <button type="button" className={cx(css.fileRow, open && css.fileRowOpen)} onClick={() => { toggle(group, change) }}>
-                    {open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
-                    <span className={cx(css.letter, css[`letter${statusLetter(group, change)}`])}>
-                      {statusLetter(group, change)}
-                    </span>
-                    <PathText
-                      className={css.filePath}
-                      value={change.oldPath === undefined ? change.path : `${change.oldPath} → ${change.path}`}
-                    />
-                  </button>
+                <div key={key} className={cx(css.fileBlock, open && css.fileBlockOpen)}>
+                  <div className={css.fileLine}>
+                    <button type="button" className={cx(css.fileRow, open && css.fileRowOpen)} onClick={() => { toggle(group, change) }}>
+                      {open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
+                      <span className={cx(css.letter, css[`letter${statusLetter(group, change)}`])}>
+                        {statusLetter(group, change)}
+                      </span>
+                      <PathText
+                        className={css.filePath}
+                        value={change.oldPath === undefined ? change.path : `${change.oldPath} → ${change.path}`}
+                      />
+                    </button>
+                    {write?.canStage === true && group !== 'conflicted' && (
+                      <button
+                        type="button"
+                        className={css.rowAction}
+                        aria-label={group === 'staged' ? t('changes.unstage') : t('changes.stage')}
+                        title={group === 'staged' ? t('changes.unstage') : t('changes.stage')}
+                        disabled={writing}
+                        onClick={() => {
+                          if (group === 'staged') unstage([change.path])
+                          else stage([change.path])
+                        }}
+                      >
+                        {group === 'staged' ? <IconCloseOutline16 /> : <IconCheckOutline16 />}
+                      </button>
+                    )}
+                  </div>
                   {open && (
                     <div className={css.diffBlock}>
                       {state?.result?.ok === true && !state.result.binary && state.result.patch !== '' && (

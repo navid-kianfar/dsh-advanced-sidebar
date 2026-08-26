@@ -26,7 +26,7 @@ Build the plugin first (`pnpm install && pnpm run build`); the Web Client refuse
 
 | Entry | What it opens | What it needs on the Host |
 |---|---|---|
-| Changes | Uncommitted changes in the session's working directory, with each file's patch on demand | `git` on PATH, `ctx.subprocess`, `ctx.fs` |
+| Changes | Uncommitted changes in the session's working directory, each file's patch, and staging + commit | `git` on PATH, `ctx.subprocess`, `ctx.fs` |
 | Terminal | An interactive shell of your own, in that directory | `ctx.subprocess`, `ctx.fs` |
 | Files | That directory, one level at a time, with a text preview | `ctx.fs` |
 | Preview | The workspace's dev server, started and shown in a frame, with its logs | `ctx.subprocess`, `ctx.fs` |
@@ -41,7 +41,20 @@ The target of every entry is the session's own `cwd`, falling back to its Worksp
 
 ## What each panel does, and what it deliberately does not
 
-**Changes** is read-only. Staging, discarding, and committing are repository writes whose consequences a sidebar cannot make legible, and each is one keystroke away in the Terminal panel beside it. The reading is `git status --porcelain=v2 --branch -z --untracked-files=all`, parsed in [`src/host/porcelain.ts`](src/host/porcelain.ts); `-z` is what keeps a path containing a space, a quote, or a newline identical between the status reading and the diff request that follows it.
+**Changes** reads the repository and writes to its index. The reading is `git status --porcelain=v2 --branch -z --untracked-files=all`, parsed in [`src/host/porcelain.ts`](src/host/porcelain.ts); `-z` is what keeps a path containing a space, a quote, or a newline identical between the status reading and the diff request that follows it.
+
+Stage and unstage act on one file or a whole group, and **Commit** records what is staged, with an optional amend. Each write returns the reading that follows it, so the lists never lag a round trip behind the index they describe, and open patches are dropped with the index they described.
+
+**Discarding is deliberately absent.** Stage, unstage, and commit are all recoverable — the working tree is untouched by the first two, and a commit stays in the reflog — while `git restore` destroys uncommitted work with nothing left to recover it from. A sidebar is the wrong place for the one irreversible verb in the set, and it is a keystroke away in the Terminal panel beside it.
+
+Four things the panel does rather than leaving to git's own error text:
+
+- Every path is proved to sit inside the repository before git sees it, and passed after `--` as a literal path — `git add` takes *pathspecs*, so an unchecked `:(exclude)` would stage something nobody picked.
+- The message crosses as one argument to `-m`, so no shell sees it and nothing in it can become an option. A message of `--amend --author=someone` commits that text.
+- The author is read with `git var GIT_AUTHOR_IDENT` — git's own answer to "who would this commit be by" — and shown under the box, so a missing `user.email` is visible *before* the button is pressed.
+- Committing has its own timeout (`gitCommitTimeoutMs`, default 2 minutes) because it runs the repository's `pre-commit` hook, which can far outlast any reading; killing one mid-run leaves a stale `index.lock`. Hooks run, and a hook's stderr comes back verbatim rather than summarized.
+
+Both writes are gated by settings (`allowGitStaging`, `allowGitCommit`) that the **Host** enforces, not just the menu: switching them off takes the verb away rather than hiding it.
 
 **Terminal** allocates its own shell through `ctx.subprocess.spawnTerminal` — deliberately **not** `ctx.terminals`. That registry's sessions are owner-fenced to an `Agent` and are the model's working terminals; joining them would let a human's keystrokes land in a session the model believes it controls.
 
@@ -152,7 +165,7 @@ For a live loop, run `npx tsdown --watch` in this package: the harness's HMR hal
 
 ## Verification
 
-Every panel was exercised against a running `dsh web` before release: the git reading and a per-file patch against a real repository, a `/bin/zsh` shell running a command and rendering its output, the file listing and a text preview, a `.claude/launch.json` dev server started and shown in the frame plus a deliberately failing one whose stderr opened the log view, the empty task list, and the Delete confirmation. `tests/` covers the porcelain parser against real `git status -z` output, the launch-file parser and merge, the screen model's control vocabulary, the path-containment guard, the generated wire contract end to end, and every design token the stylesheets name.
+Every panel was exercised against a running `dsh web` before release: the git reading, a per-file patch, staging one file, unstaging it, and a real commit against a real repository — verified with `git log`, then undone, a `/bin/zsh` shell running a command and rendering its output, the file listing and a text preview, a `.claude/launch.json` dev server started and shown in the frame plus a deliberately failing one whose stderr opened the log view, the empty task list, and the Delete confirmation. `tests/` covers the porcelain parser against real `git status -z` output, the launch-file parser and merge, the screen model's control vocabulary, the path-containment guard, the generated wire contract end to end, and every design token the stylesheets name.
 
 An adversarial audit of the finished package found 35 candidate defects; the confirmed ones are fixed here, including a path-traversal hole in the untracked-diff path (`git diff --no-index` applies no repository containment of its own), a duplicated task-output buffer, a preview poll loop that never stopped on a failed server, and the settings fallback described above.
 

@@ -36,7 +36,8 @@ import { PanelTerminals } from './terminals.ts'
 import { TaskController } from './tasks.ts'
 import type {
   AdvancedSidebarSettings, AdvancedSidebarView, DeleteSessionRequest, DeleteSessionResult,
-  GitDiffRequest, GitDiffResult, GitStatusRequest, GitStatusResult, ListEntriesRequest,
+  GitCommitRequest, GitCommitResult, GitDiffRequest, GitDiffResult, GitStageRequest,
+  GitStageResult, GitStatusRequest, GitStatusResult, ListEntriesRequest,
   ListEntriesResult, OpenInRequest, OpenInResult, PreviewListRequest, PreviewListResult,
   PreviewLogsRequest, PreviewLogsResult, PreviewStartRequest, PreviewStartResult,
   PreviewStopRequest, PreviewStopResult,
@@ -157,6 +158,9 @@ export class AdvancedSidebarService extends TypertRemoteService {
     gitMaxFiles: z.number().step(1).min(1).max(10_000).required(),
     gitDiffMaxBytes: z.number().step(1).min(1_024).max(16 * 1_024 * 1_024).required(),
     gitTimeoutMs: z.number().step(1).min(1_000).max(600_000).required(),
+    gitCommitTimeoutMs: z.number().step(1).min(1_000).max(1_800_000).required(),
+    allowGitStaging: z.boolean().required(),
+    allowGitCommit: z.boolean().required(),
     terminalShell: z.string(),
     terminalScrollback: z.number().step(1).min(1_024).max(4 * 1_024 * 1_024).required(),
     maxTerminals: z.number().step(1).min(1).max(32).required(),
@@ -269,6 +273,39 @@ export class AdvancedSidebarService extends TypertRemoteService {
   @Remote('gitDiff')
   gitDiff(request: GitDiffRequest, signal: AbortSignal): Promise<GitDiffResult> {
     return this.git.diff(request, signal)
+  }
+
+  /**
+   * Stage paths into the index.
+   * @param request - the workspace and the repository-relative paths.
+   * @param signal - gateway-supplied cancellation for the caller's abandoned request.
+   * @returns the reading after the write, or a classified failure.
+   */
+  @Remote('gitStage')
+  gitStage(request: GitStageRequest, signal: AbortSignal): Promise<GitStageResult> {
+    return this.git.stage(request, signal)
+  }
+
+  /**
+   * Take paths back out of the index, leaving the working tree alone.
+   * @param request - the workspace and the repository-relative paths.
+   * @param signal - gateway-supplied cancellation for the caller's abandoned request.
+   * @returns the reading after the write, or a classified failure.
+   */
+  @Remote('gitUnstage')
+  gitUnstage(request: GitStageRequest, signal: AbortSignal): Promise<GitStageResult> {
+    return this.git.unstage(request, signal)
+  }
+
+  /**
+   * Record the staged changes.
+   * @param request - the workspace, the message, and whether to amend.
+   * @param signal - gateway-supplied cancellation; hooks run under `gitCommitTimeoutMs`.
+   * @returns the new commit and the reading after it, or a classified failure.
+   */
+  @Remote('gitCommit')
+  gitCommit(request: GitCommitRequest, signal: AbortSignal): Promise<GitCommitResult> {
+    return this.git.commit(request, signal)
   }
 
   /**

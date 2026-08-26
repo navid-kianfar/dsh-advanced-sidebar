@@ -3,7 +3,7 @@ import type {
   RemoteResult,
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { AdvancedSidebarView, DeleteSessionRequest, DeleteSessionResult, GitDiffRequest, GitDiffResult, GitStatusRequest, GitStatusResult, ListEntriesRequest, ListEntriesResult, OpenInRequest, OpenInResult, PreviewListRequest, PreviewListResult, PreviewLogsRequest, PreviewLogsResult, PreviewStartRequest, PreviewStartResult, PreviewStopRequest, PreviewStopResult, ReadFileRequest, ReadFileResult, TaskKillRequest, TaskKillResult, TaskOutputRequest, TaskOutputResult, TerminalAckResult, TerminalCloseRequest, TerminalOpenRequest, TerminalOpenResult, TerminalReadRequest, TerminalReadResult, TerminalSignalRequest, TerminalWriteRequest } from '../src/host/types.ts'
+import type { AdvancedSidebarView, DeleteSessionRequest, DeleteSessionResult, GitCommitRequest, GitCommitResult, GitDiffRequest, GitDiffResult, GitStageRequest, GitStageResult, GitStatusRequest, GitStatusResult, ListEntriesRequest, ListEntriesResult, OpenInRequest, OpenInResult, PreviewListRequest, PreviewListResult, PreviewLogsRequest, PreviewLogsResult, PreviewStartRequest, PreviewStartResult, PreviewStopRequest, PreviewStopResult, ReadFileRequest, ReadFileResult, TaskKillRequest, TaskKillResult, TaskOutputRequest, TaskOutputResult, TerminalAckResult, TerminalCloseRequest, TerminalOpenRequest, TerminalOpenResult, TerminalReadRequest, TerminalReadResult, TerminalSignalRequest, TerminalWriteRequest } from '../src/host/types.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$616476616e63656453696465626172 {
@@ -11,6 +11,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     describe: (signal?: AbortSignal) => Promise<RemoteResult<AdvancedSidebarView>>
     gitDiff: (request: GitDiffRequest, signal?: AbortSignal) => Promise<RemoteResult<GitDiffResult>>
     gitStatus: (request: GitStatusRequest, signal?: AbortSignal) => Promise<RemoteResult<GitStatusResult>>
+    gitStage: (request: GitStageRequest, signal?: AbortSignal) => Promise<RemoteResult<GitStageResult>>
+    gitUnstage: (request: GitStageRequest, signal?: AbortSignal) => Promise<RemoteResult<GitStageResult>>
+    gitCommit: (request: GitCommitRequest, signal?: AbortSignal) => Promise<RemoteResult<GitCommitResult>>
     listEntries: (request: ListEntriesRequest, signal?: AbortSignal) => Promise<RemoteResult<ListEntriesResult>>
     openIn: (request: OpenInRequest, signal?: AbortSignal) => Promise<RemoteResult<OpenInResult>>
     previewList: (request: PreviewListRequest, signal?: AbortSignal) => Promise<RemoteResult<PreviewListResult>>
@@ -31,6 +34,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'advancedSidebar/describe': (signal?: AbortSignal) => Promise<RemoteResult<AdvancedSidebarView>>
     'advancedSidebar/gitDiff': (request: GitDiffRequest, signal?: AbortSignal) => Promise<RemoteResult<GitDiffResult>>
     'advancedSidebar/gitStatus': (request: GitStatusRequest, signal?: AbortSignal) => Promise<RemoteResult<GitStatusResult>>
+    'advancedSidebar/gitStage': (request: GitStageRequest, signal?: AbortSignal) => Promise<RemoteResult<GitStageResult>>
+    'advancedSidebar/gitUnstage': (request: GitStageRequest, signal?: AbortSignal) => Promise<RemoteResult<GitStageResult>>
+    'advancedSidebar/gitCommit': (request: GitCommitRequest, signal?: AbortSignal) => Promise<RemoteResult<GitCommitResult>>
     'advancedSidebar/listEntries': (request: ListEntriesRequest, signal?: AbortSignal) => Promise<RemoteResult<ListEntriesResult>>
     'advancedSidebar/openIn': (request: OpenInRequest, signal?: AbortSignal) => Promise<RemoteResult<OpenInResult>>
     'advancedSidebar/previewList': (request: PreviewListRequest, signal?: AbortSignal) => Promise<RemoteResult<PreviewListResult>>

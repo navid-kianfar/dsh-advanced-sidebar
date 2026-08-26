@@ -36,6 +36,22 @@ const descriptors = TYPERT_REMOTE.descriptors as unknown as Descriptor[]
  * Spelled out in full rather than partially: the point of the assertion is that the schema accepts
  * every field the Host actually sends, and a fixture missing one would pass while the wire failed.
  */
+const STATUS = {
+  ok: true,
+  write: { canStage: true, canCommit: true, author: 'A <a@example.com>' },
+  repositoryRoot: '/w',
+  prefix: '',
+  ahead: 0,
+  behind: 0,
+  detached: false,
+  staged: [],
+  unstaged: [],
+  untracked: [],
+  conflicted: [],
+  truncated: false,
+  readAt: 1,
+}
+
 const SECTION = {
   showInSidebar: true,
   showInSessionHeader: true,
@@ -55,6 +71,9 @@ const SECTION = {
   gitMaxFiles: 500,
   gitDiffMaxBytes: 262_144,
   gitTimeoutMs: 20_000,
+  gitCommitTimeoutMs: 120_000,
+  allowGitStaging: true,
+  allowGitCommit: true,
   terminalShell: '',
   terminalScrollback: 200_000,
   maxTerminals: 4,
@@ -118,8 +137,8 @@ describe('generated Typert contract', () => {
     const cancellable = descriptors.filter(descriptor => descriptor.cancellation !== undefined)
       .map(descriptor => descriptor.method).sort()
     expect(cancellable).toEqual([
-      'deleteSession', 'describe', 'gitDiff', 'gitStatus', 'listEntries', 'openIn', 'previewList',
-      'previewStart', 'readFile', 'terminalOpen',
+      'deleteSession', 'describe', 'gitCommit', 'gitDiff', 'gitStage', 'gitStatus', 'gitUnstage',
+      'listEntries', 'openIn', 'previewList', 'previewStart', 'readFile', 'terminalOpen',
     ])
     for (const descriptor of descriptors) {
       if (descriptor.cancellation !== undefined) expect(descriptor.cancellation.parameter).toBe('signal')
@@ -135,6 +154,9 @@ describe('generated Typert contract', () => {
       openIn: { targetId: 'vscode', path: '/w' },
       readFile: { path: '/w/a.ts', workspacePath: '/w' },
       taskKill: { sessionId: 's-1', taskId: 'bash-1' },
+      gitStage: { workspacePath: '/w', paths: ['a.ts'] },
+      gitUnstage: { workspacePath: '/w', paths: ['a.ts'] },
+      gitCommit: { workspacePath: '/w', message: 'a message', amend: false },
       previewList: { workspacePath: '/w' },
       previewLogs: { serverId: 'p-1', fromOffset: 0 },
       previewStart: { workspacePath: '/w', name: 'dev' },
@@ -176,7 +198,8 @@ describe('generated Typert contract', () => {
       },
       gitDiff: { ok: true, path: 'a.ts', patch: '', binary: false, truncated: false },
       gitStatus: {
-        ok: true, repositoryRoot: '/w', prefix: '', ahead: 0, behind: 0, detached: false,
+        ok: true, write: { canStage: true, canCommit: true, author: 'A <a@example.com>' },
+        repositoryRoot: '/w', prefix: '', ahead: 0, behind: 0, detached: false,
         staged: [{ path: 'a.ts', index: 'modified', worktree: 'unmodified', untracked: false, conflicted: false }],
         unstaged: [], untracked: [], conflicted: [], truncated: false, readAt: 1,
       },
@@ -184,6 +207,9 @@ describe('generated Typert contract', () => {
         ok: true, path: '/w', entries: [{ name: 'a.ts', path: '/w/a.ts', kind: 'file', size: 3 }], truncated: false,
       },
       openIn: { ok: true },
+      gitStage: { ok: true, status: STATUS },
+      gitUnstage: { ok: true, status: STATUS },
+      gitCommit: { ok: true, commit: 'abc1234', subject: 'a message', status: STATUS, notes: '' },
       previewList: {
         ok: true,
         servers: [{ name: 'dev', origin: 'launch-json', startable: true, state: 'ready', url: 'http://127.0.0.1:3000', port: 3000, pid: 9, startedAt: 1 }],
@@ -219,6 +245,9 @@ describe('generated Typert contract', () => {
       gitStatus: { ok: false, code: 'not-a-repository', message: 'no repo' },
       listEntries: { ok: false, code: 'path-denied', message: 'outside' },
       openIn: { ok: false, code: 'unavailable', message: 'no code' },
+      gitStage: { ok: false, code: 'disabled', message: 'off' },
+      gitUnstage: { ok: false, code: 'path-denied', message: 'outside' },
+      gitCommit: { ok: false, code: 'nothing-staged', message: 'nothing staged' },
       previewList: { ok: false, code: 'path-denied', message: 'outside' },
       previewLogs: { ok: false, code: 'unknown-server', message: 'stopped' },
       previewStart: { ok: false, code: 'not-startable', message: 'no command' },

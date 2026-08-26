@@ -16,7 +16,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {
-  AdvancedSidebarSettings, AdvancedSidebarView, DeleteSessionResult, GitDiffRequest, GitDiffResult,
+  AdvancedSidebarSettings, AdvancedSidebarView, DeleteSessionResult, GitCommitResult,
+  GitDiffRequest, GitDiffResult, GitStageResult,
   GitStatusResult, ListEntriesResult, PreviewListResult, PreviewLogsResult, PreviewStartResult,
   PreviewStopResult, ReadFileResult, TaskKillResult, TaskOutputResult,
   TerminalAckResult, TerminalOpenResult, TerminalReadResult,
@@ -130,6 +131,28 @@ export interface PanelHostInjected {
    * @returns the patch, or a classified failure.
    */
   gitDiff: (request: GitDiffRequest, signal?: AbortSignal) => Promise<GitDiffResult>
+  /**
+   * Stage paths into the index.
+   * @param workspacePath - the workspace the reading came from.
+   * @param paths - repository-relative paths.
+   * @returns the reading after the write, or a classified failure.
+   */
+  gitStage: (workspacePath: string, paths: readonly string[]) => Promise<GitStageResult>
+  /**
+   * Take paths back out of the index.
+   * @param workspacePath - the workspace the reading came from.
+   * @param paths - repository-relative paths.
+   * @returns the reading after the write, or a classified failure.
+   */
+  gitUnstage: (workspacePath: string, paths: readonly string[]) => Promise<GitStageResult>
+  /**
+   * Record the staged changes.
+   * @param workspacePath - the workspace the reading came from.
+   * @param message - the commit message.
+   * @param amend - replace the previous commit instead of adding one.
+   * @returns the new commit and the reading after it, or a classified failure.
+   */
+  gitCommit: (workspacePath: string, message: string, amend: boolean) => Promise<GitCommitResult>
   /**
    * Allocate a panel terminal.
    * @param workspacePath - the directory to start in.

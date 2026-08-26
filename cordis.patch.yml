@@ -58,6 +58,21 @@
         gitDiffMaxBytes: 262144
         gitTimeoutMs: 20000
 
+        # Writing to the repository from the panel. Staging and committing are both recoverable —
+        # the working tree is untouched by stage/unstage, and a commit stays in the reflog — which
+        # is why they are offered at all; discarding is not offered from any surface here.
+        # Committing needs staging, so switching staging off removes both.
+        #
+        # A deployment where the browser is not the operator's own machine may want these off: the
+        # Host refuses the operation, not just the menu, so switching them off takes the verb away
+        # rather than hiding it.
+        allowGitStaging: true
+        allowGitCommit: true
+        # Separate from gitTimeoutMs because a commit runs the repository's own pre-commit hook,
+        # which can take far longer than any reading — and killing one mid-run leaves the index
+        # locked behind a stale `index.lock`.
+        gitCommitTimeoutMs: 120000
+
         # Panel terminals. An empty shell resolves $SHELL, then the platform default. Scrollback is
         # counted in characters; the grace period is the TERM-to-KILL window when a panel closes.
         terminalShell: ''

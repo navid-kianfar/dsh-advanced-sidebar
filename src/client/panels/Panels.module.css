@@ -169,9 +169,90 @@
   letter-spacing: 0;
 }
 
+/* Pushed to the far end of the heading: it acts on the whole group, so it reads as part of the
+   heading rather than as another row. */
+.groupAction {
+  margin-left: auto;
+  padding: 1px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.groupAction:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.groupAction:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
 .fileBlock {
   display: flex;
   flex-direction: column;
+}
+
+/* The stage/unstage control is a sibling of the disclosure button, not a child: nesting a button
+   inside a button is invalid, and the click would reach both. */
+.fileLine {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.fileLine:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* The row already carries the hover fill for the whole line. */
+.fileLine:hover > .fileRow:hover {
+  background: transparent;
+}
+
+.fileBlockOpen > .fileLine {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+/* Revealed on hover, like every other row action in the shell: a column of always-visible buttons
+   beside every changed file would read as the point of the list rather than as an action on it. */
+.rowAction {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.fileLine:hover .rowAction,
+.rowAction:focus-visible {
+  opacity: 1;
+}
+
+.rowAction:hover {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+  color: var(--dsw-alias-label-primary);
+}
+
+.rowAction:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
 }
 
 .fileRow {
@@ -265,6 +346,107 @@
 
 /* `!` is not a legal CSS class suffix, so the conflicted row falls through to the neutral letter
    style; the group heading above it is what names the condition. */
+
+/* --- commit --- */
+
+/* Pinned above the lists rather than below them: the message is what a person came to write, and a
+   box under a long list of files would be off screen exactly when it is needed. */
+.commitBox {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.commitMessage {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  /* A commit message is prose, and its own newlines are meaningful; the box grows by hand rather
+     than reflowing the panel on every keystroke. */
+  resize: vertical;
+  min-height: 52px;
+}
+
+.commitMessage:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.commitMessage:disabled {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.commitRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.commitAmend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.commitCheckbox {
+  margin: 0;
+  accent-color: var(--dsw-alias-brand-primary);
+  cursor: pointer;
+}
+
+.commitButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-brand-primary);
+  border-radius: 8px;
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.commitButton:hover {
+  background: var(--dsw-alias-button-primary-hover);
+  border-color: var(--dsw-alias-button-primary-hover);
+}
+
+.commitButton:disabled {
+  background: var(--dsw-alias-button-primary-dimmed);
+  border-color: var(--dsw-alias-button-primary-dimmed);
+  cursor: default;
+}
+
+.commitButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+.commitHint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
+}
 
 /* --- diffs --- */
 

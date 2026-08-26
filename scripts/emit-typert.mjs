@@ -40,9 +40,14 @@ const gitChange = `z.object({
   'untracked': z.boolean().readonly(),
   'conflicted': z.boolean().readonly(),
 })`
+const gitWrite = `z.object({
+  'canStage': z.boolean().readonly(),
+  'canCommit': z.boolean().readonly(),
+  'author': z.string().readonly().optional(),
+})`
 const gitFailure = `z.object({
   'ok': z.literal(false).readonly(),
-  'code': ${u('no-filesystem','no-git','not-a-repository','git-failed','timeout','cancelled','path-denied')}.readonly(),
+  'code': ${u('no-filesystem','no-git','not-a-repository','git-failed','timeout','cancelled','path-denied','disabled','nothing-staged','empty-message','no-identity')}.readonly(),
   'message': z.string().readonly(),
 })`
 const terminalFailure = `z.object({
@@ -74,6 +79,9 @@ const settingsSection = `z.object({
   'gitMaxFiles': z.number().readonly(),
   'gitDiffMaxBytes': z.number().readonly(),
   'gitTimeoutMs': z.number().readonly(),
+  'gitCommitTimeoutMs': z.number().readonly(),
+  'allowGitStaging': z.boolean().readonly(),
+  'allowGitCommit': z.boolean().readonly(),
   'terminalShell': z.string().readonly(),
   'terminalScrollback': z.number().readonly(),
   'maxTerminals': z.number().readonly(),
@@ -100,6 +108,23 @@ const settingsSection = `z.object({
   'previewReadyTimeoutMs': z.number().readonly(),
   'previewScrollback': z.number().readonly(),
   'previewGraceMs': z.number().readonly(),
+})`
+const gitStatusSuccess = `z.object({
+  'ok': z.literal(true).readonly(),
+  'write': ${gitWrite}.readonly(),
+  'repositoryRoot': z.string().readonly(),
+  'prefix': z.string().readonly(),
+  'branch': z.string().readonly().optional(),
+  'upstream': z.string().readonly().optional(),
+  'ahead': z.number().readonly(),
+  'behind': z.number().readonly(),
+  'detached': z.boolean().readonly(),
+  'staged': z.array(${gitChange}).readonly(),
+  'unstaged': z.array(${gitChange}).readonly(),
+  'untracked': z.array(${gitChange}).readonly(),
+  'conflicted': z.array(${gitChange}).readonly(),
+  'truncated': z.boolean().readonly(),
+  'readAt': z.number().readonly(),
 })`
 const previewFailure = `z.object({
   'ok': z.literal(false).readonly(),
@@ -128,7 +153,7 @@ const readFileFailure = `z.object({
 /** method -> { params: [{name, wire, type, schema}], cancellation, result: {type, schema}, line } */
 const ENDPOINTS = [
   {
-    method: 'deleteSession', line: 427,
+    method: 'deleteSession', line: 464,
     params: [{ name: 'request', wire: 'request', type: 'DeleteSessionRequest', schema: `z.object({
   'sessionId': z.string().readonly(),
 })` }],
@@ -146,7 +171,7 @@ const ENDPOINTS = [
 })])` },
   },
   {
-    method: 'describe', line: 230,
+    method: 'describe', line: 234,
     params: [],
     cancellation: true,
     result: { type: 'AdvancedSidebarView', schema: `z.object({
@@ -182,7 +207,7 @@ const ENDPOINTS = [
 })` },
   },
   {
-    method: 'gitDiff', line: 270,
+    method: 'gitDiff', line: 274,
     params: [{ name: 'request', wire: 'request', type: 'GitDiffRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
   'path': z.string().readonly(),
@@ -199,30 +224,55 @@ const ENDPOINTS = [
 }), ${gitFailure}])` },
   },
   {
-    method: 'gitStatus', line: 259,
+    method: 'gitStatus', line: 263,
     params: [{ name: 'request', wire: 'request', type: 'GitStatusRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
 })` }],
     cancellation: true,
-    result: { type: 'GitStatusResult', schema: `z.union([z.object({
+    result: { type: 'GitStatusResult', schema: `z.union([${gitStatusSuccess}, ${gitFailure}])` },
+  },
+  {
+    method: 'gitStage', line: 285,
+    params: [{ name: 'request', wire: 'request', type: 'GitStageRequest', schema: `z.object({
+  'workspacePath': z.string().readonly(),
+  'paths': z.array(z.string()).readonly(),
+})` }],
+    cancellation: true,
+    result: { type: 'GitStageResult', schema: `z.union([z.object({
   'ok': z.literal(true).readonly(),
-  'repositoryRoot': z.string().readonly(),
-  'prefix': z.string().readonly(),
-  'branch': z.string().readonly().optional(),
-  'upstream': z.string().readonly().optional(),
-  'ahead': z.number().readonly(),
-  'behind': z.number().readonly(),
-  'detached': z.boolean().readonly(),
-  'staged': z.array(${gitChange}).readonly(),
-  'unstaged': z.array(${gitChange}).readonly(),
-  'untracked': z.array(${gitChange}).readonly(),
-  'conflicted': z.array(${gitChange}).readonly(),
-  'truncated': z.boolean().readonly(),
-  'readAt': z.number().readonly(),
+  'status': ${gitStatusSuccess}.readonly(),
 }), ${gitFailure}])` },
   },
   {
-    method: 'listEntries', line: 332,
+    method: 'gitUnstage', line: 296,
+    params: [{ name: 'request', wire: 'request', type: 'GitStageRequest', schema: `z.object({
+  'workspacePath': z.string().readonly(),
+  'paths': z.array(z.string()).readonly(),
+})` }],
+    cancellation: true,
+    result: { type: 'GitStageResult', schema: `z.union([z.object({
+  'ok': z.literal(true).readonly(),
+  'status': ${gitStatusSuccess}.readonly(),
+}), ${gitFailure}])` },
+  },
+  {
+    method: 'gitCommit', line: 307,
+    params: [{ name: 'request', wire: 'request', type: 'GitCommitRequest', schema: `z.object({
+  'workspacePath': z.string().readonly(),
+  'message': z.string().readonly(),
+  'amend': z.boolean().readonly(),
+})` }],
+    cancellation: true,
+    result: { type: 'GitCommitResult', schema: `z.union([z.object({
+  'ok': z.literal(true).readonly(),
+  'commit': z.string().readonly(),
+  'subject': z.string().readonly(),
+  'status': ${gitStatusSuccess}.readonly(),
+  'notes': z.string().readonly(),
+}), ${gitFailure}])` },
+  },
+  {
+    method: 'listEntries', line: 369,
     params: [{ name: 'request', wire: 'request', type: 'ListEntriesRequest', schema: `z.object({
   'path': z.string().readonly(),
   'workspacePath': z.string().readonly(),
@@ -242,7 +292,7 @@ const ENDPOINTS = [
 }), ${readFileFailure}])` },
   },
   {
-    method: 'openIn', line: 396,
+    method: 'openIn', line: 433,
     params: [{ name: 'request', wire: 'request', type: 'OpenInRequest', schema: `z.object({
   'targetId': z.string().readonly(),
   'path': z.string().readonly(),
@@ -257,7 +307,7 @@ const ENDPOINTS = [
 })])` },
   },
   {
-    method: 'previewList', line: 343,
+    method: 'previewList', line: 380,
     params: [{ name: 'request', wire: 'request', type: 'PreviewListRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
 })` }],
@@ -270,7 +320,7 @@ const ENDPOINTS = [
 }), ${previewFailure}])` },
   },
   {
-    method: 'previewLogs', line: 374,
+    method: 'previewLogs', line: 411,
     params: [{ name: 'request', wire: 'request', type: 'PreviewLogsRequest', schema: `z.object({
   'serverId': z.string().readonly(),
   'fromOffset': z.number().readonly(),
@@ -286,7 +336,7 @@ const ENDPOINTS = [
 }), ${previewFailure}])` },
   },
   {
-    method: 'previewStart', line: 354,
+    method: 'previewStart', line: 391,
     params: [{ name: 'request', wire: 'request', type: 'PreviewStartRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
   'name': z.string().readonly(),
@@ -298,7 +348,7 @@ const ENDPOINTS = [
 }), ${previewFailure}])` },
   },
   {
-    method: 'previewStop', line: 364,
+    method: 'previewStop', line: 401,
     params: [{ name: 'request', wire: 'request', type: 'PreviewStopRequest', schema: `z.object({
   'serverId': z.string().readonly(),
 })` }],
@@ -308,7 +358,7 @@ const ENDPOINTS = [
 }), ${previewFailure}])` },
   },
   {
-    method: 'readFile', line: 385,
+    method: 'readFile', line: 422,
     params: [{ name: 'request', wire: 'request', type: 'ReadFileRequest', schema: `z.object({
   'path': z.string().readonly(),
   'workspacePath': z.string().readonly(),
@@ -324,7 +374,7 @@ const ENDPOINTS = [
 }), ${readFileFailure}])` },
   },
   {
-    method: 'taskKill', line: 406,
+    method: 'taskKill', line: 443,
     params: [{ name: 'request', wire: 'request', type: 'TaskKillRequest', schema: `z.object({
   'sessionId': z.string().readonly(),
   'taskId': z.string().readonly(),
@@ -336,7 +386,7 @@ const ENDPOINTS = [
 }), ${taskFailure}])` },
   },
   {
-    method: 'taskOutput', line: 416,
+    method: 'taskOutput', line: 453,
     params: [{ name: 'request', wire: 'request', type: 'TaskOutputRequest', schema: `z.object({
   'sessionId': z.string().readonly(),
   'taskId': z.string().readonly(),
@@ -351,7 +401,7 @@ const ENDPOINTS = [
 }), ${taskFailure}])` },
   },
   {
-    method: 'terminalClose', line: 321,
+    method: 'terminalClose', line: 358,
     params: [{ name: 'request', wire: 'request', type: 'TerminalCloseRequest', schema: `z.object({
   'terminalId': z.string().readonly(),
 })` }],
@@ -361,7 +411,7 @@ const ENDPOINTS = [
 }), ${terminalFailure}])` },
   },
   {
-    method: 'terminalOpen', line: 281,
+    method: 'terminalOpen', line: 318,
     params: [{ name: 'request', wire: 'request', type: 'TerminalOpenRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
   'cols': z.number().readonly(),
@@ -377,7 +427,7 @@ const ENDPOINTS = [
 }), ${terminalFailure}])` },
   },
   {
-    method: 'terminalRead', line: 291,
+    method: 'terminalRead', line: 328,
     params: [{ name: 'request', wire: 'request', type: 'TerminalReadRequest', schema: `z.object({
   'terminalId': z.string().readonly(),
   'fromOffset': z.number().readonly(),
@@ -395,7 +445,7 @@ const ENDPOINTS = [
 }), ${terminalFailure}])` },
   },
   {
-    method: 'terminalSignal', line: 311,
+    method: 'terminalSignal', line: 348,
     params: [{ name: 'request', wire: 'request', type: 'TerminalSignalRequest', schema: `z.object({
   'terminalId': z.string().readonly(),
   'signal': ${u('SIGINT','SIGTERM','SIGKILL','SIGTSTP','SIGHUP')}.readonly(),
@@ -406,7 +456,7 @@ const ENDPOINTS = [
 }), ${terminalFailure}])` },
   },
   {
-    method: 'terminalWrite', line: 301,
+    method: 'terminalWrite', line: 338,
     params: [{ name: 'request', wire: 'request', type: 'TerminalWriteRequest', schema: `z.object({
   'terminalId': z.string().readonly(),
   'data': z.string().readonly(),
