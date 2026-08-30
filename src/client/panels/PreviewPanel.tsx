@@ -25,7 +25,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PreviewServerView, PreviewState } from '../../host/types.ts'
-import type { Translate } from '../contract.ts'
+import { Alert, Button, Input, Select } from '../ui/index.ts'
 import { cx } from '../cx.ts'
 import { TerminalScreen } from '../terminal-screen.ts'
 import { transportMessage, useLatest, type PanelProps } from './shared.tsx'
@@ -70,7 +70,7 @@ function dotState(state: PreviewState): StateDotState | undefined {
 
 /**
  * The server picker, the frame, and the log view.
- * @param props - the target, the translator, and the drawer's face.
+ * @param props - the target, the translator, and the dock's face.
  * @returns the panel body.
  * @see {@link PanelProps}
  */
@@ -211,7 +211,7 @@ export function PreviewPanel({ target, t, face }: PanelProps) {
 
   // --- device presets -------------------------------------------------------------------------
 
-  // The stage is measured rather than assumed: the drawer's width is a setting, and a preset wider
+  // The stage is measured rather than assumed: the dock's width is a setting, and a preset wider
   // than the stage has to be scaled down instead of clipped.
   useEffect(() => {
     const element = stageRef.current
@@ -272,63 +272,59 @@ export function PreviewPanel({ target, t, face }: PanelProps) {
         {dotState(state) !== undefined
           ? <StateDot state={dotState(state) ?? 'done'} className={css.taskDot} />
           : <span className={css.taskDot} />}
-        <select
+        <Select
           className={css.previewPicker}
           aria-label={t('preview.server')}
-          value={selected ?? ''}
+          value={selected}
+          placeholder={t('preview.none')}
           disabled={servers === undefined || servers.length === 0}
-          onChange={(event) => { setSelected(event.target.value) }}
-        >
-          {(servers ?? []).map(entry => (
-            <option key={entry.name} value={entry.name}>
-              {entry.origin === 'launch-json' ? `${entry.name} · launch.json` : entry.name}
-            </option>
-          ))}
-          {servers?.length === 0 && <option value="">{t('preview.none')}</option>}
-        </select>
+          options={(servers ?? []).map(entry => ({
+            value: entry.name,
+            label: entry.name,
+            note: entry.origin === 'launch-json' ? 'launch.json' : undefined,
+          }))}
+          onValueChange={setSelected}
+        />
         <span className={css.quietInline}>{t(`preview.state.${state}` as 'preview.state.ready')}</span>
         <span className={css.spacer} />
         {running
           ? (
-            <button
-              type="button"
-              className={css.toolButton}
+            <Button
+              size="icon"
               aria-label={t('preview.stop')}
               title={t('preview.stop')}
               disabled={busy}
               onClick={stop}
             >
               <IconStopFill16 />
-            </button>
+            </Button>
           )
           : (
-            <button
-              type="button"
-              className={css.toolButton}
+            <Button
+              size="icon"
               aria-label={t('preview.start')}
               title={server?.startable === false ? t('preview.notStartable') : t('preview.start')}
               disabled={!canStart}
               onClick={start}
             >
               {busy ? <IconLoadingOutline16 /> : <IconPlayOutline16 />}
-            </button>
+            </Button>
           )}
-        <button
-          type="button"
-          className={cx(css.toolButton, showLogs && css.toolButtonOn)}
+        <Button
+          size="sm"
+          active={showLogs}
           aria-label={t('preview.logs')}
-          aria-pressed={showLogs}
           title={t('preview.logs')}
           onClick={() => { setShowLogs(value => !value) }}
         >
-          <span className={css.toolText}>{t('preview.logs')}</span>
-        </button>
+          {t('preview.logs')}
+        </Button>
       </div>
 
       <div className={css.toolbar}>
-        <input
+        <Input
           className={css.addressBar}
-          type="text"
+          code
           spellCheck={false}
           autoComplete="off"
           aria-label={t('preview.address')}
@@ -337,41 +333,37 @@ export function PreviewPanel({ target, t, face }: PanelProps) {
           onChange={(event) => { setAddress(event.target.value) }}
           onKeyDown={(event) => { if (event.key === 'Enter') setFrameKey(value => value + 1) }}
         />
-        <button
-          type="button"
-          className={css.toolButton}
+        <Button
+          size="icon"
           aria-label={t('panel.refresh')}
           title={t('panel.refresh')}
           disabled={src === ''}
           onClick={() => { setFrameKey(value => value + 1) }}
         >
           <IconRefreshOutline14 />
-        </button>
-        <button
-          type="button"
-          className={css.toolButton}
+        </Button>
+        <Button
+          size="icon"
           aria-label={t('preview.newWindow')}
           title={t('preview.newWindow')}
           disabled={src === ''}
           onClick={() => { window.open(src, '_blank', 'noopener,noreferrer') }}
         >
           <IconRightUpOutline16 />
-        </button>
-        <select
+        </Button>
+        <Select<DeviceId>
           className={css.previewPicker}
           aria-label={t('preview.device')}
           value={device}
-          onChange={(event) => { setDevice(event.target.value as DeviceId) }}
-        >
-          {DEVICES.map(entry => (
-            <option key={entry.id} value={entry.id}>
-              {t(`preview.device.${entry.id}` as 'preview.device.desktop')}
-            </option>
-          ))}
-        </select>
+          options={DEVICES.map(entry => ({
+            value: entry.id,
+            label: t(`preview.device.${entry.id}` as 'preview.device.desktop'),
+          }))}
+          onValueChange={setDevice}
+        />
       </div>
 
-      {error !== undefined && <p className={css.error}>{error}</p>}
+      {error !== undefined && <Alert tone="destructive" className={css.panelAlert}>{error}</Alert>}
       {launchError !== undefined && <p className={css.quiet}>{launchError}</p>}
       {server?.detail !== undefined && state !== 'ready' && <p className={css.quiet}>{server.detail}</p>}
       {servers?.length === 0 && (

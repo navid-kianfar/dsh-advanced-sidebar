@@ -12,6 +12,7 @@ import {
   IconChevronLeftOutline14, IconFolderClose16, IconRefreshOutline14, IconRightUpOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DirectoryEntryView, ListEntriesResult, ReadFileResult } from '../../host/types.ts'
+import { Alert, Badge, Button } from '../ui/index.ts'
 import { cx } from '../cx.ts'
 import { FileGlyph } from '../Glyphs.tsx'
 import { PathText, formatBytes, transportMessage, useLatest, type PanelProps } from './shared.tsx'
@@ -19,7 +20,7 @@ import css from './Panels.module.css'
 
 /**
  * The directory listing and the preview beside it.
- * @param props - the target, the translator, and the drawer's face.
+ * @param props - the target, the translator, and the dock's face.
  * @returns the panel body.
  * @see {@link PanelProps}
  */
@@ -73,34 +74,32 @@ export function FilesPanel({ target, t, face }: PanelProps) {
   return (
     <>
       <div className={css.toolbar}>
-        <button
-          type="button"
-          className={css.toolButton}
+        <Button
+          size="icon"
           aria-label={t('files.up')}
           title={t('files.up')}
           disabled={level?.parent === undefined}
           onClick={() => { if (level?.parent !== undefined) setPath(level.parent) }}
         >
           <IconChevronLeftOutline14 />
-        </button>
+        </Button>
         <PathText className={css.crumb} value={level?.path ?? path ?? ''} />
         <span className={css.spacer} />
-        <button
-          type="button"
-          className={css.toolButton}
+        <Button
+          size="icon"
           aria-label={t('panel.refresh')}
           title={t('panel.refresh')}
           onClick={() => { setGeneration(value => value + 1) }}
         >
           <IconRefreshOutline14 />
-        </button>
+        </Button>
       </div>
 
       <div className={css.split}>
         <div className={css.scroll}>
-          {error !== undefined && <p className={css.error}>{error}</p>}
+          {error !== undefined && <Alert tone="destructive" className={css.panelAlert}>{error}</Alert>}
           {listing === undefined && error === undefined && <p className={css.quiet}>{t('panel.loading')}</p>}
-          {listing?.ok === false && <p className={css.error}>{listing.message}</p>}
+          {listing?.ok === false && <Alert tone="destructive" className={css.panelAlert}>{listing.message}</Alert>}
           {level !== undefined && level.entries.length === 0 && <p className={css.quiet}>{t('files.empty')}</p>}
           {level?.entries.map(entry => (
             <button
@@ -118,7 +117,7 @@ export function FilesPanel({ target, t, face }: PanelProps) {
               {entry.kind === 'directory' ? <IconFolderClose16 /> : <FileGlyph size={16} />}
               <span className={css.entryName}>{entry.name}</span>
               {entry.size !== undefined && entry.kind === 'file' && (
-                <span className={css.fileSize}>{formatBytes(entry.size)}</span>
+                <Badge variant="outline" className={css.fileSize}>{formatBytes(entry.size)}</Badge>
               )}
             </button>
           ))}
@@ -130,22 +129,21 @@ export function FilesPanel({ target, t, face }: PanelProps) {
           {selected !== undefined && (
             <div className={css.previewHead}>
               <PathText className={css.filePath} value={selected} />
-              <button
-                type="button"
-                className={css.toolButton}
+              <Button
+                size="icon"
                 aria-label={t('files.open')}
                 title={t('files.open')}
                 onClick={() => { void openPath(selected) }}
               >
                 <IconRightUpOutline16 />
-              </button>
+              </Button>
             </div>
           )}
-          {previewError !== undefined && <p className={css.error}>{previewError}</p>}
+          {previewError !== undefined && <Alert tone="destructive" className={css.panelAlert}>{previewError}</Alert>}
           {selected !== undefined && preview === undefined && previewError === undefined && (
             <p className={css.quiet}>{t('panel.loading')}</p>
           )}
-          {preview?.ok === false && <p className={css.error}>{preview.message}</p>}
+          {preview?.ok === false && <Alert tone="destructive" className={css.panelAlert}>{preview.message}</Alert>}
           {preview?.ok === true && preview.binary && (
             <p className={css.quiet}>{t('files.preview.binary', { bytes: formatBytes(preview.bytes) })}</p>
           )}

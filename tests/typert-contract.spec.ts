@@ -53,7 +53,6 @@ const STATUS = {
 }
 
 const SECTION = {
-  showInSidebar: true,
   showInSessionHeader: true,
   showChanges: true,
   showTerminal: true,

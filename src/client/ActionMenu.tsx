@@ -1,5 +1,5 @@
 /**
- * The advanced-operations menu itself — the one component both seats render.
+ * The advanced-operations menu itself, in the session header.
  *
  * Entries are built from two independent facts: what the settings section switched on, and what the
  * Host reported it can serve. A switched-off entry is absent; an entry the Host cannot serve is
@@ -8,38 +8,28 @@
  * @module @achasoft/dsh-advanced-sidebar/client/ActionMenu
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   IconArchiveOutline20, IconEllipsisOutline16, IconFolderOpenOutline16, IconQueueOutline14,
-  IconTrashOutline16, Menu, type MenuEntry, type MenuItem,
+  IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AdvancedSidebarSettings, AdvancedSidebarView } from '../host/types.ts'
 import type { MenuInjected, Translate } from './contract.ts'
 import type { OperationTarget, PanelKind } from './controller.ts'
 import { ChangesGlyph, ExternalGlyph, PreviewGlyph, TerminalGlyph } from './Glyphs.tsx'
+import { Button, DropdownMenu, type MenuNode } from './ui/index.ts'
 import { cx } from './cx.ts'
 import css from './ActionMenu.module.css'
 
-/** Submenu ids are namespaced, because `Menu` reports every selection through one flat handler. */
+/** Submenu ids are namespaced, because the menu reports every selection through one flat handler. */
 const OPEN_IN_PREFIX = 'open-in:'
 
 /** The Open in entry for a second browser window; not a Host target, so it has no configured id. */
 const NEW_WINDOW_ID = `${OPEN_IN_PREFIX}new-window`
 
-/** How the trigger is drawn. */
-export type ActionMenuVariant =
-  /** Sidebar foot, expanded column: a 42px row with an icon and a label. */
-  | 'sidebar-wide'
-  /** Sidebar foot, 56px rail: a 36px circle with the icon alone. */
-  | 'sidebar-rail'
-  /** Session header: a compact square icon button. */
-  | 'header'
-
 /** Everything the menu renders from, plus the callbacks it fires. */
 export interface ActionMenuProps {
-  /** Trigger geometry. */
-  variant: ActionMenuVariant
   /** The session and directory every entry acts on; absent disables everything but the trigger. */
   target: OperationTarget | undefined
   /** The resolved settings section; absent while the scope is still loading. */
@@ -48,39 +38,24 @@ export interface ActionMenuProps {
   view: AdvancedSidebarView | undefined
   /** The namespace translator. */
   t: Translate
-  /** Business callbacks, minus the reactive sources the seats bind themselves. */
+  /** Business callbacks, minus the reactive sources the seat binds itself. */
   actions: Pick<MenuInjected, 'openPanel' | 'openIn' | 'openWindow' | 'archive' | 'requestDelete'>
   /** Ask the Host for a fresh capability view; called each time the menu opens. */
   refresh: () => void
-}
-
-/** One menu row's label, with the reason it is unavailable beside it. */
-function Row({ label, note }: { label: string; note?: string | undefined }): ReactNode {
-  return (
-    <span className={css.row}>
-      <span className={css.rowLabel}>{label}</span>
-      {note !== undefined && <span className={css.rowNote}>{note}</span>}
-    </span>
-  )
+  /** Which panel the dock is showing, so the open entry reads as the current one. */
+  openPanel: PanelKind | undefined
 }
 
 /**
  * The trigger plus its menu.
- * @param props - geometry, target, settings, capability view, translator, and callbacks.
- * @returns the menu element, or null when the settings section switched both seats off.
+ * @param props - the target, settings, capability view, translator, and callbacks.
+ * @returns the menu element, or null when the settings section leaves it with no entries.
  * @see {@link ActionMenuProps}
  */
 export function ActionMenu(props: ActionMenuProps) {
-  const { variant, target, settings, view, t, actions, refresh } = props
+  const { target, settings, view, t, actions, refresh, openPanel } = props
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
-
-  // The trigger owns its own rect: `Menu`'s wrapper span is not laid out at the button in the
-  // rail's centered flex box, and measuring it there places the list against the wrong edge.
-  const anchorRect = useCallback(
-    () => triggerRef.current?.getBoundingClientRect() ?? null,
-    [],
-  )
 
   // A capability probe per open, not per mount: git can be installed, an editor can appear, and a
   // menu that answered once at boot would keep reporting the state of that moment forever.
@@ -109,17 +84,20 @@ export function ActionMenu(props: ActionMenuProps) {
     return state.available ? undefined : (state.reason ?? t('settings.unavailable'))
   }
 
-  const items: MenuEntry[] = []
+  const items: MenuNode[] = []
   const panelRow = (
     id: PanelKind, key: Parameters<Translate>[0], icon: ReactNode,
     state: { available: boolean; reason?: string } | undefined,
   ): void => {
     const note = unavailable(state)
     items.push({
+      kind: 'item',
       id,
-      label: <Row label={t(key)} note={note} />,
+      label: t(key),
+      note,
       icon,
       disabled: note !== undefined,
+      checked: openPanel === id,
     })
   }
 
@@ -134,58 +112,67 @@ export function ActionMenu(props: ActionMenuProps) {
       ? t('menu.noSession')
       : (view?.tasks.available === false ? (view.tasks.reason ?? t('settings.unavailable')) : undefined)
     items.push({
+      kind: 'item',
       id: 'tasks',
-      label: <Row label={t('menu.tasks')} note={note} />,
+      label: t('menu.tasks'),
+      note,
       icon: <IconQueueOutline14 size={16} />,
       disabled: note !== undefined,
+      checked: openPanel === 'tasks',
     })
   }
 
   if (settings.showOpenIn) {
-    const submenu: MenuItem[] = [{ id: NEW_WINDOW_ID, label: t('menu.openIn.newWindow') }]
+    const submenu: MenuNode[] = [{ kind: 'item', id: NEW_WINDOW_ID, label: t('menu.openIn.newWindow') }]
     for (const entry of view?.openIn ?? []) {
       submenu.push({
+        kind: 'item',
         id: `${OPEN_IN_PREFIX}${entry.id}`,
-        label: <Row label={entry.label} note={entry.available ? undefined : t('settings.editors.missing')} />,
+        label: entry.label,
+        note: entry.available ? undefined : t('settings.editors.missing'),
         disabled: !entry.available || directory === undefined,
       })
     }
-    if (items.length > 0) items.push({ type: 'separator', id: 'sep-open-in' })
+    if (items.length > 0) items.push({ kind: 'separator', id: 'sep-open-in' })
     items.push({
+      kind: 'sub',
       id: 'open-in',
-      label: <Row label={t('menu.openIn')} />,
+      label: t('menu.openIn'),
       icon: <ExternalGlyph size={16} />,
-      submenu,
+      items: submenu,
     })
   }
 
-  const sessionEntries: MenuEntry[] = []
+  const sessionEntries: MenuNode[] = []
   if (settings.showArchive) {
     sessionEntries.push({
+      kind: 'item',
       id: 'archive',
-      label: <Row label={t('menu.archive')} note={target === undefined ? t('menu.noSession') : undefined} />,
+      label: t('menu.archive'),
+      note: target === undefined ? t('menu.noSession') : undefined,
       icon: <IconArchiveOutline20 size={16} />,
       disabled: target === undefined,
     })
   }
   if (settings.showDelete) {
     sessionEntries.push({
+      kind: 'item',
       id: 'delete',
-      label: <Row label={t('menu.delete')} note={target === undefined ? t('menu.noSession') : undefined} />,
+      label: t('menu.delete'),
+      note: target === undefined ? t('menu.noSession') : undefined,
       icon: <IconTrashOutline16 />,
       danger: true,
       disabled: target === undefined,
     })
   }
   if (sessionEntries.length > 0) {
-    if (items.length > 0) items.push({ type: 'separator', id: 'sep-session' })
+    if (items.length > 0) items.push({ kind: 'separator', id: 'sep-session' })
     items.push(...sessionEntries)
   }
 
   if (items.length === 0) return null
 
   const onSelect = (id: string): void => {
-    setOpen(false)
     if (target === undefined) return
     if (id === NEW_WINDOW_ID) { actions.openWindow(); return }
     if (id.startsWith(OPEN_IN_PREFIX)) {
@@ -198,46 +185,37 @@ export function ActionMenu(props: ActionMenuProps) {
     if (id === 'changes' || id === 'terminal' || id === 'files' || id === 'tasks' || id === 'preview') {
       actions.openPanel(id, target)
     }
-    // Any other id is the `open-in` parent row, which `Menu` reports only when it has no submenu —
-    // and it always has one here, so nothing is left to dispatch.
+    // Any other id is the `open-in` parent row, which the menu reports only when it has no
+    // submenu — and it always has one here, so nothing is left to dispatch.
   }
 
   const label = t('menu.trigger')
-  const wide = variant === 'sidebar-wide'
   return (
-    <Menu
-      open={open}
-      onClose={() => { setOpen(false) }}
-      items={items}
-      onSelect={onSelect}
-      portal
-      align={variant === 'header' ? 'end' : 'start'}
-      // The sidebar foot sits at the bottom of the viewport, so its list must grow upward or it
-      // would be clamped against the edge and cover the trigger it belongs to.
-      side={variant === 'header' ? 'bottom' : 'top'}
-      getAnchorRect={anchorRect}
-      className={cx(css.menuRoot, variant === 'sidebar-wide' && css.menuRootWide)}
-      anchor={(
-        <button
-          ref={triggerRef}
-          type="button"
-          className={cx(
-            css.trigger,
-            variant === 'sidebar-wide' && css.triggerWide,
-            variant === 'sidebar-rail' && css.triggerRail,
-            variant === 'header' && css.triggerHeader,
-            open && css.triggerOpen,
-          )}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          aria-label={target === undefined ? label : t('menu.aria', { name: target.title })}
-          title={label}
-          onClick={() => { setOpen(value => !value) }}
-        >
-          <IconEllipsisOutline16 />
-          {wide && <span className={css.triggerLabel}>{label}</span>}
-        </button>
-      )}
-    />
+    <>
+      <Button
+        ref={triggerRef}
+        size="icon"
+        className={cx(css.trigger, open && css.triggerOpen)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={target === undefined ? label : t('menu.aria', { name: target.title })}
+        title={label}
+        onClick={() => { setOpen(value => !value) }}
+      >
+        <IconEllipsisOutline16 />
+      </Button>
+      <DropdownMenu
+        open={open}
+        onClose={() => { setOpen(false) }}
+        anchorRef={triggerRef}
+        items={items}
+        onSelect={onSelect}
+        // The header sits at the top right of the frame, so the list hangs below it and lines its
+        // right edge up with the trigger's.
+        side="bottom"
+        align="end"
+        label={label}
+      />
+    </>
   )
 }

@@ -56,7 +56,6 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_describe_result$schema = z.
   'reason': z.string().readonly().optional(),
 }).readonly(),
   'settings': z.object({
-  'showInSidebar': z.boolean().readonly(),
   'showInSessionHeader': z.boolean().readonly(),
   'showChanges': z.boolean().readonly(),
   'showTerminal': z.boolean().readonly(),

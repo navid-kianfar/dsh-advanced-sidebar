@@ -140,7 +140,6 @@ const EditorSchema = z.object({
 export class AdvancedSidebarService extends TypertRemoteService {
   /** Loader validation for every deployment-varying choice this plugin makes. */
   static Config: z<Config> = z.object({
-    showInSidebar: z.boolean().required(),
     showInSessionHeader: z.boolean().required(),
     showChanges: z.boolean().required(),
     showTerminal: z.boolean().required(),

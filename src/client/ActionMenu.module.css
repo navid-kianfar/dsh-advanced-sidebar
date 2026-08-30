@@ -1,118 +1,16 @@
-/* The advanced-operations trigger, in the three boxes its two seats need.
+/* The session header's trigger.
  *
- * The sidebar foot's 42px row and 36px rail circle are the shell's own rhythm — the Settings row
- * and the Cordis footer action use the same geometry, and a foot seat that invents its own would
- * read as a control from a different application. */
+ * The button itself is the kit's icon button; only the header's own geometry and its open state
+ * are added here, because the header packs its utilities at a fixed height. */
 
 .trigger {
-  display: inline-flex;
-  align-items: center;
-  border: none;
-  background: transparent;
-  color: var(--dsw-alias-label-primary);
-  font-family: inherit;
-  cursor: pointer;
-  overflow: hidden;
-}
-
-.trigger:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.trigger:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: -2px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .triggerOpen {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-/* Expanded sidebar: the foot row shared with Settings — full width, 42px tall, 12px radius,
-   and the same -2px bleed that lets the hover fill reach the column's padding edge. */
-.triggerWide {
-  gap: 8px;
-  width: calc(100% + 4px);
-  height: 42px;
-  margin: 0 -2px;
-  padding: 0 10px 0 8px;
-  border-radius: 12px;
-  font-size: 14px;
-  line-height: 22px;
-}
-
-.triggerLabel {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Collapsed rail: the same 36px circle as every other rail control. */
-.triggerRail {
-  justify-content: center;
-  gap: 0;
-  width: 36px;
-  height: 36px;
-  margin: 0;
-  padding: 0;
-  border-radius: 50%;
-}
-
-/* Session header: a square icon button matching the header's other utilities. */
-.triggerHeader {
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border-radius: 8px;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.triggerHeader:hover {
+  background: var(--dsw-alias-interactive-bg-active);
   color: var(--dsw-alias-label-primary);
-}
-
-/* The Menu primitive's own root wraps the trigger. It is `inline-flex`, so a `width: 100%` on the
-   button inside would resolve against a shrink-to-fit box rather than the sidebar column — the
-   wrapper has to carry the column's width itself for the foot row to span it. */
-.menuRoot {
-  display: flex;
-  min-width: 0;
-}
-
-/* The sidebar seat gives the wrapper the column; the header seat leaves it shrink-to-fit. */
-.menuRootWide {
-  width: 100%;
-}
-
-/* One row's label, with the reason it is unavailable trailing it.
-   `white-space: normal` is restated because the Menu primitive's own `.itemLabel` sets `nowrap`,
-   which would make the diagnostic below an unbreakable line that widens the whole card. */
-.row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  max-width: 320px;
-  white-space: normal;
-}
-
-.rowLabel {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The reason is deliberately quiet and allowed to be long: it is diagnostic text, so it wraps
-   inside the row rather than widening the card past the menu's own measure. */
-.rowNote {
-  flex: 1;
-  min-width: 0;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 16px;
-  text-align: right;
-  overflow-wrap: anywhere;
 }

@@ -9,15 +9,15 @@ import type { PanelHostInjected, Translate } from '../contract.ts'
 import type { OperationTarget } from '../controller.ts'
 import css from './Panels.module.css'
 
-/** What every panel is handed by the drawer. */
+/** What every panel is handed by the dock. */
 export interface PanelProps {
   /** The session and directory this panel acts on. */
   target: OperationTarget
   /** The namespace translator. */
   t: Translate
   /**
-   * The drawer's own injected face, minus the reserved `hooks` compartment: the renderer replaces
-   * that with bound `use<Name>` selector props before the drawer is rendered, so no panel ever sees
+   * The dock's own injected face, minus the reserved `hooks` compartment: the renderer replaces
+   * that with bound `use<Name>` selector props before the dock is rendered, so no panel ever sees
    * the sources themselves.
    */
   face: Omit<PanelHostInjected, 'hooks'>

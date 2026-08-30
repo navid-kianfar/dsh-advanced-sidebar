@@ -1,61 +1,17 @@
 /**
- * The two menu seats: one at the sidebar foot, one in the session header.
+ * The menu seat: the session header's utilities row.
  *
- * Both render the same {@link ActionMenu}. They differ only in where the target comes from — the
- * foot is root-scoped and resolves the current session itself, the header is handed one — and in
- * the trigger geometry each seat's surrounding chrome expects.
+ * There was a second seat at the sidebar foot. It was withdrawn — the same menu in two places gave
+ * the column an action whose target was whatever session happened to be current, which is not what
+ * a column of sessions reads as; the header's menu acts on the session it sits in.
  * @module @achasoft/dsh-advanced-sidebar/client/Seats
  */
 
 import { useMemo } from 'react'
-import type { HeaderMenuProps, SidebarMenuProps } from './contract.ts'
+import type { HeaderMenuProps } from './contract.ts'
 import { ActionMenu } from './ActionMenu.tsx'
 import { resolveTarget } from './target.ts'
 import { useCapabilityView } from './use-capability.ts'
-
-/**
- * The sidebar foot's trigger. Root-scoped, so the current session is read from the session list.
- * @param props - the shell's column state plus the standard kit and this plugin's face.
- * @returns the trigger and its menu, or null while the settings section switches it off.
- * @see {@link SidebarMenuProps}
- */
-export function SidebarMenu(props: SidebarMenuProps) {
-  const { wide, useSessions, useWorkspaces, useSettings, useSidebar, t, describe } = props
-  const bound = useSettings(snapshot => snapshot.value)
-  const sessions = useSessions(state => state)
-  const workspaces = useWorkspaces(state => state)
-  // Subscribed so the trigger re-renders when a drawer opens; the open drawer is what its
-  // `data-open` marker reports to the rest of the column.
-  const openPanel = useSidebar(state => state.panel.panel)
-  // Fetched unconditionally, because the fallback below depends on it: gating the probe on the
-  // settings value would leave a client that cannot read settings with neither source.
-  const { view, refresh } = useCapabilityView(describe)
-  // The bound scope where it resolves, the Host's own copy otherwise. `ctx.settingsScope` answers
-  // `unavailable` with no value on every non-loopback Web Client, and a surface that took that as
-  // "switched off" would disappear entirely for remote access.
-  const settings = bound ?? view?.settings
-
-  const current = sessions.current
-  const target = useMemo(
-    () => resolveTarget(sessions, workspaces, current),
-    [sessions, workspaces, current],
-  )
-
-  if (settings === undefined || !settings.showInSidebar) return null
-  return (
-    <span data-advanced-sidebar-open={openPanel ?? undefined}>
-      <ActionMenu
-        variant={wide ? 'sidebar-wide' : 'sidebar-rail'}
-        target={target}
-        settings={settings}
-        view={view}
-        t={t}
-        actions={props}
-        refresh={refresh}
-      />
-    </span>
-  )
-}
 
 /**
  * The session header's trigger. Session-scoped, so the framework supplies the session id.
@@ -64,12 +20,19 @@ export function SidebarMenu(props: SidebarMenuProps) {
  * @see {@link HeaderMenuProps}
  */
 export function HeaderMenu(props: HeaderMenuProps) {
-  const { sessionId, useSessions, useWorkspaces, useSettings, t, describe } = props
+  const { sessionId, useSessions, useWorkspaces, useSettings, useSidebar, t, describe } = props
   const bound = useSettings(snapshot => snapshot.value)
   const sessions = useSessions(state => state)
   const workspaces = useWorkspaces(state => state)
+  // Subscribed so the entry of the open panel carries its check mark, and so choosing it again
+  // reads as the toggle it is.
+  const openPanel = useSidebar(state => state.panel.panel)
+  // Fetched unconditionally, because the fallback below depends on it: gating the probe on the
+  // settings value would leave a client that cannot read settings with neither source.
   const { view, refresh } = useCapabilityView(describe)
-  /** See {@link SidebarMenu}: the bound scope, or the Host's copy on a client that has no document. */
+  // The bound scope where it resolves, the Host's own copy otherwise. `ctx.settingsScope` answers
+  // `unavailable` with no value on every non-loopback Web Client, and a surface that took that as
+  // "switched off" would disappear entirely for remote access.
   const settings = bound ?? view?.settings
 
   const target = useMemo(
@@ -80,13 +43,13 @@ export function HeaderMenu(props: HeaderMenuProps) {
   if (settings === undefined || !settings.showInSessionHeader) return null
   return (
     <ActionMenu
-      variant="header"
       target={target}
       settings={settings}
       view={view}
       t={t}
       actions={props}
       refresh={refresh}
+      openPanel={openPanel}
     />
   )
 }

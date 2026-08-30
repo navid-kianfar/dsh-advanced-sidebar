@@ -1,6 +1,12 @@
 /**
- * The Terminal panel: an interactive shell of the operator's own, in the session's working
- * directory.
+ * The Terminal panel: interactive shells of the operator's own, in the session's working directory.
+ *
+ * There are as many as the Host's `maxTerminals` allows, on a tab strip. Each tab is a separate
+ * `spawnTerminal` allocation with its own emulator, its own poll chain, and its own lifetime; the
+ * handles live in the shared controller rather than in this component, so switching to another
+ * panel or closing the dock leaves the shells running exactly as hiding a terminal pane in an
+ * editor does. A reopened tab replays instead of restarting, because the Host retains each shell's
+ * scrollback and the panel asks for it from offset zero.
  *
  * The screen is a real terminal emulator (`@xterm/xterm`), not an approximation. That is not
  * gold-plating: an interactive shell redraws its prompt with cursor addressing on every keystroke,
@@ -8,30 +14,39 @@
  * prompt as overwritten fragments. Colour, line editing, history recall, and full-screen programs
  * all come with the emulator; nothing here reimplements them.
  *
- * Output arrives by polling, because an out-of-tree plugin has no host-to-client push channel: the
- * panel holds the whole-stream offset it has already written into the emulator and asks for
- * whatever came after it. The offset is what makes a reopened panel replay the retained scrollback
- * instead of showing a blank screen, and what makes a dropped poll cost nothing but latency.
+ * Output arrives by polling, because an out-of-tree plugin has no host-to-client push channel: each
+ * view holds the whole-stream offset it has already written into its emulator and asks for whatever
+ * came after it.
  * @module @achasoft/dsh-advanced-sidebar/client/panels/TerminalPanel
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
-import { IconRefreshOutline14, IconStopFill16, IconTrashOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconPlusOutline16, IconRefreshOutline14, IconStopFill16, IconTrashOutline16,
+} from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import '@xterm/xterm/css/xterm.css'
-import type { TerminalReadSuccess } from '../../host/types.ts'
+import type { AdvancedSidebarSettings, TerminalReadSuccess } from '../../host/types.ts'
+import type { SidebarState, TerminalTab } from '../controller.ts'
+import { terminalKey } from '../controller.ts'
+import { Alert, Badge, Button, Tabs } from '../ui/index.ts'
+import { cx } from '../cx.ts'
 import { transportMessage, useLatest, type PanelProps } from './shared.tsx'
 import css from './Panels.module.css'
 
-/** How often the panel asks for new output while the shell is alive. */
+/** How often a view asks for new output while its shell is alive. */
 const POLL_MS = 200
 
-/** Retained scrollback rows inside the emulator. */
+/** Retained scrollback rows inside one emulator. */
 const SCROLLBACK = 5_000
 
 /** The byte Ctrl+C produces; intercepted so an interrupt becomes a signal rather than data. */
 const ETX = '\u0003'
+
+/** Terminals a Host allows by default, used only until its settings answer. */
+const DEFAULT_MAX_TERMINALS = 4
 
 /**
  * The emulator's palette, resolved from the app's own tokens.
@@ -58,28 +73,41 @@ function paletteOf(host: HTMLElement): {
   }
 }
 
-/** What the panel knows about its shell. */
-interface Session {
-  /** The Host handle. */
-  terminalId: string
-  /** Which shell answered. */
-  shell: string
+/**
+ * The trailing component of a shell path, for a tab's tooltip.
+ * @param shell - the executable the Host started; absent while it is being allocated.
+ * @returns the basename, or an empty string.
+ */
+function shellName(shell: string | undefined): string {
+  if (shell === undefined) return ''
+  const at = Math.max(shell.lastIndexOf('/'), shell.lastIndexOf('\\'))
+  return at < 0 ? shell : shell.slice(at + 1)
+}
+
+/** What one tab's screen is handed. */
+interface TerminalViewProps extends PanelProps {
+  /** The tab this view renders. */
+  tab: TerminalTab
+  /** The terminal group this tab belongs to. */
+  groupKey: string
+  /** The directory the shell is started in. */
+  directory: string
+  /** Whether this tab is the one showing; an inactive view stays mounted and laid out. */
+  active: boolean
 }
 
 /**
- * The shell, its screen, and the keyboard.
- * @param props - the target, the translator, and the drawer's face.
- * @returns the panel body.
- * @see {@link PanelProps}
+ * One shell: its screen, its keyboard, and the toolbar acting on it.
+ * @param props - the tab, its group, the directory, and the dock's face.
+ * @returns the view.
+ * @see {@link TerminalViewProps}
  */
-export function TerminalPanel({ target, t, face }: PanelProps) {
-  const { terminalOpen, terminalRead, terminalWrite, terminalInterrupt, terminalClose } = face
-  const directory = target.directory
+function TerminalView({ tab, groupKey, directory, active, t, face }: TerminalViewProps) {
+  const { terminalOpen, terminalRead, terminalWrite, terminalInterrupt, terminalClose, settleTerminal } = face
   const latest = useLatest(t)
-  const [session, setSession] = useState<Session | undefined>(undefined)
-  const [error, setError] = useState<string | undefined>(undefined)
   const [exit, setExit] = useState<string | undefined>(undefined)
   const [lossy, setLossy] = useState(false)
+  const [failure, setFailure] = useState<string | undefined>(undefined)
   const [attempt, setAttempt] = useState(0)
   const offset = useRef(0)
   const hostRef = useRef<HTMLDivElement>(null)
@@ -87,13 +115,19 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
   const fitRef = useRef<FitAddon | undefined>(undefined)
   /** The size the emulator measured before the shell was started; the PTY is fixed to it. */
   const geometry = useRef<{ cols: number; rows: number }>({ cols: 80, rows: 24 })
+  /** Identifies the current attempt, so an allocation this view has superseded closes itself. */
+  const token = useRef(0)
+  /** True while an attempt change is what is tearing the allocation effect down. */
+  const restarting = useRef(false)
+  /** The handle this tab already had at mount; a re-attach must not allocate a second shell. */
+  const attached = useRef(tab.terminalId)
 
   /** Re-measure the emulator, tolerating a host element that has no layout box yet. */
   const refit = useCallback(() => {
     try {
       fitRef.current?.fit()
     } catch {
-      // `fit()` throws while the host has no layout box — the drawer closing mid-observation, or a
+      // `fit()` throws while the host has no layout box — the dock closing mid-observation, or a
       // measurement taken before the panel is laid out. There is nothing to fit to in that state,
       // and the next observation measures again.
     }
@@ -120,7 +154,7 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
     refit()
     geometry.current = { cols: term.cols, rows: term.rows }
 
-    // The emulator's own size follows the drawer, so rendered rows stay readable when the panel is
+    // The emulator's own size follows the dock, so rendered rows stay readable when the column is
     // resized. The SHELL's size does not follow: the subprocess seam exposes no resize verb, so a
     // program that laid its output out for the original width keeps that layout until Restart
     // allocates a shell at the new one.
@@ -134,12 +168,12 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
     }
   }, [refit])
 
-  // Allocation is keyed on the directory and the restart counter, so a Restart tears the previous
-  // shell down through this effect's own cleanup rather than leaving two alive. The translator is
-  // deliberately absent from the dependencies — a language switch must not kill a running shell.
+  // Allocation. Deliberately NOT torn down with the view: the tab owns the shell, and the tab
+  // outlives this component every time the dock is closed or another panel is opened. Only a
+  // Restart closes what it replaces, which is what `restarting` marks.
   useEffect(() => {
-    if (directory === undefined) return
-    let live = true
+    if (attempt === 0 && attached.current !== undefined) return
+    const mine = ++token.current
     let allocated: string | undefined
     const term = termRef.current
     refit()
@@ -150,31 +184,34 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
     offset.current = 0
     setExit(undefined)
     setLossy(false)
-    setError(undefined)
-    setSession(undefined)
+    setFailure(undefined)
 
     terminalOpen(directory, geometry.current.cols, geometry.current.rows).then(
       (result) => {
-        if (!result.ok) { if (live) setError(result.message); return }
-        // The allocation can settle AFTER this effect was torn down — the panel closed, or the
-        // directory changed, while the shell was still being started. The cleanup below cannot
-        // close a handle it never saw, so a terminal arriving late closes itself here instead of
-        // leaking a shell nothing can reach.
-        if (!live) { void terminalClose(result.terminalId); return }
+        if (!result.ok) {
+          if (mine === token.current) settleTerminal(groupKey, tab.tabId, { error: result.message })
+          return
+        }
+        // A superseded attempt's shell is closed here rather than published: nothing would ever
+        // reach it, and the tab already points at the allocation that replaced it.
+        if (mine !== token.current) { void terminalClose(result.terminalId); return }
         allocated = result.terminalId
-        setSession({ terminalId: result.terminalId, shell: result.shell })
+        settleTerminal(groupKey, tab.tabId, { terminalId: result.terminalId, shell: result.shell })
       },
-      (reason: unknown) => { if (live) setError(transportMessage(reason, latest.current)) },
+      (reason: unknown) => {
+        if (mine === token.current) {
+          settleTerminal(groupKey, tab.tabId, { error: transportMessage(reason, latest.current) })
+        }
+      },
     )
     return () => {
-      live = false
-      // The shell is this panel's, so closing the panel closes it: leaving one behind would keep a
-      // process alive that nothing can reach and that only plugin teardown would ever reap.
-      if (allocated !== undefined) void terminalClose(allocated)
+      if (!restarting.current || allocated === undefined) return
+      restarting.current = false
+      void terminalClose(allocated)
     }
-  }, [directory, attempt, refit, terminalOpen, terminalClose, latest])
+  }, [attempt, directory, groupKey, tab.tabId, refit, terminalOpen, terminalClose, settleTerminal, latest])
 
-  const terminalId = session?.terminalId
+  const terminalId = tab.terminalId
   const finished = exit !== undefined
 
   // One poll chain rather than an interval: a slow read must not queue a second one behind it, and
@@ -200,7 +237,7 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
           if (result.ok) {
             settle(result)
           } else {
-            setError(result.message)
+            setFailure(result.message)
             // A handle the Host no longer knows will never be known again — the shell was closed
             // from elsewhere, or the plugin reloaded. Re-arming would poll a dead id forever.
             if (result.code === 'unknown-terminal') { live = false; return }
@@ -209,7 +246,7 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
         },
         (reason: unknown) => {
           if (!live) return
-          setError(transportMessage(reason, latest.current))
+          setFailure(transportMessage(reason, latest.current))
           timer = window.setTimeout(tick, POLL_MS)
         },
       )
@@ -224,8 +261,8 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
   const send = useCallback((data: string) => {
     if (terminalId === undefined) return
     void terminalWrite(terminalId, data).then((result) => {
-      if (!result.ok) setError(result.message)
-    }, (reason: unknown) => { setError(transportMessage(reason, latest.current)) })
+      if (!result.ok) setFailure(result.message)
+    }, (reason: unknown) => { setFailure(transportMessage(reason, latest.current)) })
   }, [terminalId, terminalWrite, latest])
 
   // Keystrokes go straight from the emulator to the shell. Ctrl+C is intercepted so it reaches the
@@ -249,46 +286,52 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
     }
   }, [terminalId, finished, send, terminalInterrupt])
 
+  // A hidden view has a layout box but not the dock's current width; it re-measures when shown.
+  useEffect(() => {
+    if (!active) return
+    refit()
+    termRef.current?.focus()
+  }, [active, refit])
+
   const idle = terminalId === undefined || finished
+  const error = failure ?? tab.error
+  const name = shellName(tab.shell)
 
   return (
-    <>
+    <div className={cx(css.terminalView, !active && css.terminalViewHidden)} aria-hidden={!active}>
       <div className={css.toolbar}>
-        <span className={css.quietInline} title={session?.shell}>{session?.shell ?? t('terminal.starting')}</span>
+        <Badge code title={tab.shell}>{name === '' ? t('terminal.starting') : name}</Badge>
+        {finished && <Badge variant="warning">{exit}</Badge>}
         <span className={css.spacer} />
-        <button
-          type="button"
-          className={css.toolButton}
+        <Button
+          size="icon"
           aria-label={t('terminal.interrupt')}
           title={t('terminal.interrupt')}
           disabled={idle}
           onClick={() => { if (terminalId !== undefined) void terminalInterrupt(terminalId) }}
         >
           <IconStopFill16 />
-        </button>
-        <button
-          type="button"
-          className={css.toolButton}
+        </Button>
+        <Button
+          size="icon"
           aria-label={t('terminal.clear')}
           title={t('terminal.clear')}
           onClick={() => { termRef.current?.clear() }}
         >
           <IconTrashOutline16 />
-        </button>
-        <button
-          type="button"
-          className={css.toolButton}
+        </Button>
+        <Button
+          size="icon"
           aria-label={t('terminal.restart')}
           title={t('terminal.restart')}
-          onClick={() => { setAttempt(value => value + 1) }}
+          onClick={() => { restarting.current = true; setAttempt(value => value + 1) }}
         >
           <IconRefreshOutline14 />
-        </button>
+        </Button>
       </div>
 
       {lossy && <p className={css.quiet}>{t('terminal.lossy')}</p>}
-      {error !== undefined && <p className={css.error}>{error}</p>}
-      {exit !== undefined && <p className={css.quiet}>{exit}</p>}
+      {error !== undefined && <Alert tone="destructive" className={css.panelAlert}>{error}</Alert>}
       <div
         ref={hostRef}
         className={css.terminalBox}
@@ -296,6 +339,90 @@ export function TerminalPanel({ target, t, face }: PanelProps) {
         onClick={() => { termRef.current?.focus() }}
         role="presentation"
       />
+    </div>
+  )
+}
+
+/** What the panel is handed on top of the shared panel props. */
+export interface TerminalPanelProps extends PanelProps {
+  /** The controller's snapshot hook; the tab strip is rendered from the shared terminal group. */
+  useSidebar: SnapshotSelectorHook<SidebarState>
+  /** The resolved settings section; absent while neither source has answered. */
+  settings: AdvancedSidebarSettings | undefined
+}
+
+/**
+ * The tab strip and the stack of screens under it.
+ * @param props - the target, the translator, the dock's face, and the controller's snapshot hook.
+ * @returns the panel body.
+ * @see {@link TerminalPanelProps}
+ */
+export function TerminalPanel({ target, t, face, useSidebar, settings }: TerminalPanelProps) {
+  const key = terminalKey(target)
+  const group = useSidebar(state => state.terminals[key])
+  const tabs = useMemo(() => group?.tabs ?? [], [group])
+  const activeId = group?.activeId
+  const directory = target.directory
+  const { addTerminal, activateTerminal, closeTerminal } = face
+  const limit = settings?.maxTerminals ?? DEFAULT_MAX_TERMINALS
+
+  const add = useCallback(() => {
+    // A browser-generated id, because the tab exists — and is rendered — before the Host has
+    // answered with a handle to name it by.
+    addTerminal(key, crypto.randomUUID())
+  }, [addTerminal, key])
+
+  // The panel opens with one shell rather than an empty strip: a terminal panel that shows nothing
+  // until a button is pressed is one press away from every use of it. Once only — closing the last
+  // tab is a decision to have no shell, not a request for a fresh one.
+  const started = useRef(false)
+  useEffect(() => {
+    if (started.current || directory === undefined) return
+    started.current = true
+    if (tabs.length === 0) add()
+  }, [directory, tabs.length, add])
+
+  if (directory === undefined) return <p className={css.quiet}>{t('menu.noDirectory')}</p>
+
+  return (
+    <>
+      <div className={css.terminalTabs}>
+        <Tabs
+          aria-label={t('terminal.tabs')}
+          tabs={tabs.map((tab, index) => ({
+            id: tab.tabId,
+            label: t('terminal.tab', { index: index + 1 }),
+            title: tab.shell ?? t('terminal.starting'),
+          }))}
+          value={activeId}
+          onValueChange={(id) => { activateTerminal(key, id) }}
+          onClose={(id) => { void closeTerminal(key, id) }}
+        >
+          <Button
+            size="icon"
+            aria-label={t('terminal.new')}
+            title={tabs.length >= limit ? t('terminal.limit', { count: limit }) : t('terminal.new')}
+            disabled={tabs.length >= limit}
+            onClick={add}
+          >
+            <IconPlusOutline16 />
+          </Button>
+        </Tabs>
+      </div>
+      <div className={css.terminalStack}>
+        {tabs.map(tab => (
+          <TerminalView
+            key={tab.tabId}
+            tab={tab}
+            groupKey={key}
+            directory={directory}
+            active={tab.tabId === activeId}
+            target={target}
+            t={t}
+            face={face}
+          />
+        ))}
+      </div>
     </>
   )
 }

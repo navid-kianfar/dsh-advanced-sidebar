@@ -15,10 +15,9 @@
     - id: advanced-sidebar
       name: '@achasoft/dsh-advanced-sidebar/host'
       config:
-        # Where the menu appears. Both are on: the foot entry acts on the current session and is
-        # reachable while the conversation is scrolled anywhere, the header entry is where a
-        # per-session menu is conventionally looked for.
-        showInSidebar: true
+        # Where the menu appears. The session header is the only seat: a per-session menu is
+        # conventionally looked for there, and it acts on the session it sits in rather than on
+        # whichever one happens to be current.
         showInSessionHeader: true
 
         # Which entries the menu offers. Switching one off removes it from the menu; for Delete it
@@ -33,8 +32,8 @@
         showArchive: true
         showDelete: true
 
-        # Drawer width in pixels. Clamped to the viewport at render time, so a wide preference is
-        # safe on a narrow window.
+        # Dock width in pixels, and where a resize drag is stored. Clamped at render time to what
+        # the app frame can spare, so a wide preference is safe on a narrow window.
         panelWidth: 460
 
         # What Delete does. `archive` hides the session and keeps its log — reversible in principle,

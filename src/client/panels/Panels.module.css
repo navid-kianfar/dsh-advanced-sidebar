@@ -22,40 +22,6 @@
   min-width: 0;
 }
 
-.toolButton {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-}
-
-.toolButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
-}
-
-.toolButton:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: -2px;
-}
-
-.toolButton:disabled {
-  color: var(--dsw-alias-label-dimmed);
-  cursor: default;
-}
-
-.toolButton:disabled:hover {
-  background: transparent;
-  color: var(--dsw-alias-label-dimmed);
-}
-
 .branch {
   flex: none;
   max-width: 45%;
@@ -64,17 +30,6 @@
   white-space: nowrap;
   font-weight: 600;
   color: var(--dsw-alias-label-primary);
-}
-
-.pill {
-  flex: none;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  line-height: 17px;
-  white-space: nowrap;
 }
 
 /* Paths are rendered by `PathText`, which supplies the two spans below. */
@@ -97,7 +52,7 @@
   flex-direction: column;
 }
 
-/* The listing takes the upper half and the preview the lower one: the drawer is a tall column, so
+/* The listing takes the upper half and the preview the lower one: the dock is a tall column, so
    stacking keeps both readable where a side-by-side split would give each about 200px. */
 .split > .scroll {
   flex: 1 1 45%;
@@ -134,12 +89,11 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.error {
+/* The kit's alert inside a panel: the panel supplies the margin, the alert supplies everything
+   else, so a failure line sits on the same gutter as the quiet text above it. */
+.panelAlert {
+  flex: none;
   margin: 8px 12px;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-state-error-primary);
-  overflow-wrap: anywhere;
 }
 
 /* --- changed-file groups --- */
@@ -392,54 +346,6 @@
   gap: 8px;
 }
 
-.commitAmend {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-}
-
-.commitCheckbox {
-  margin: 0;
-  accent-color: var(--dsw-alias-brand-primary);
-  cursor: pointer;
-}
-
-.commitButton {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px;
-  border: 1px solid var(--dsw-alias-brand-primary);
-  border-radius: 8px;
-  background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-label-primary-inverted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.commitButton:hover {
-  background: var(--dsw-alias-button-primary-hover);
-  border-color: var(--dsw-alias-button-primary-hover);
-}
-
-.commitButton:disabled {
-  background: var(--dsw-alias-button-primary-dimmed);
-  border-color: var(--dsw-alias-button-primary-dimmed);
-  cursor: default;
-}
-
-.commitButton:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 2px;
-}
-
 .commitHint {
   margin: 0;
   font-size: 11px;
@@ -484,7 +390,7 @@
   font-size: 12px;
   line-height: 18px;
   /* A patch is pre-formatted text with meaningful columns: it scrolls sideways rather than wrapping,
-     inside its own box so the drawer itself never grows a horizontal bar. */
+     inside its own box so the dock itself never grows a horizontal bar. */
   overflow-x: auto;
   white-space: pre;
 }
@@ -509,7 +415,65 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* --- filters --- */
+
+/* One row above a list: a text filter and two pickers. The row wraps rather than clipping — the
+   dock is as narrow as 280px, and a picker cut off at its edge cannot be read or opened. */
+.filterBar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.filterText {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+/* Both pickers shrink together and wrap onto their own row before either is clipped. */
+.filterControl {
+  flex: 1 1 120px;
+  min-width: 0;
+  max-width: 180px;
+}
+
 /* --- terminal --- */
+
+/* The tab strip sits above every screen: one row for the shells, whichever of them is showing. */
+.terminalTabs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+/* Every open shell stays mounted and laid out, so its emulator keeps a real box to fit to and a
+   tab switch does not have to re-measure, re-attach, and replay the whole scrollback. */
+.terminalStack {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.terminalView {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Hidden rather than unmounted, and not `display: none`: a box with no layout makes the emulator's
+   fit throw, and the screen would have to be rebuilt every time the tab came back. */
+.terminalViewHidden {
+  visibility: hidden;
+  pointer-events: none;
+}
 
 /* The emulator owns everything inside this box: it paints its own canvas, so the box supplies only
    the size and the padding, and xterm's own stylesheet (inlined by the build) supplies the rest. */
@@ -520,6 +484,17 @@
   background: var(--dsw-alias-bg-layer-1);
   cursor: text;
   overflow: hidden;
+}
+
+/* The Files panel's text preview: the same monospace block as a log, with the panel's own gutter. */
+.previewText {
+  margin: 0;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* The retained text style, used by the preview log view and by task output — both plain logs
@@ -628,19 +603,6 @@
   background: var(--dsw-alias-markdown-code-block);
 }
 
-/* --- preview --- */
-
-.toolButtonOn {
-  background: var(--dsw-alias-interactive-bg-active);
-  color: var(--dsw-alias-label-primary);
-}
-
-.toolText {
-  padding: 0 4px;
-  font-size: 11px;
-  line-height: 16px;
-}
-
 .previewPicker {
   flex: none;
   max-width: 45%;
@@ -695,7 +657,7 @@
 }
 
 /* A device preset is scaled from its top-left so the page's own top-left stays put; without the
-   origin the frame drifts as the drawer is resized. */
+   origin the frame drifts as the dock is resized. */
 .previewFrame {
   flex: none;
   width: 100%;

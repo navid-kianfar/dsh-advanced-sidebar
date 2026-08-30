@@ -20,6 +20,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GitDiffResult, GitFileChange, GitStatusResult, GitStatusSuccess } from '../../host/types.ts'
 import type { Translate } from '../contract.ts'
+import { Alert, Badge, Button, CheckboxRow, Textarea } from '../ui/index.ts'
 import { cx } from '../cx.ts'
 import { PathText, transportMessage, useLatest, type PanelProps } from './shared.tsx'
 import css from './Panels.module.css'
@@ -90,10 +91,10 @@ function DiffLine({ line }: { line: string }) {
 /** The patch body for one expanded row. */
 function Diff({ state, t }: { state: DiffState; t: Translate }) {
   if (state.loading) return <p className={css.quiet}>{t('panel.loading')}</p>
-  if (state.error !== undefined) return <p className={css.error}>{state.error}</p>
+  if (state.error !== undefined) return <Alert tone="destructive" className={css.panelAlert}>{state.error}</Alert>
   const result = state.result
   if (result === undefined) return null
-  if (!result.ok) return <p className={css.error}>{result.message}</p>
+  if (!result.ok) return <Alert tone="destructive" className={css.panelAlert}>{result.message}</Alert>
   if (result.binary) return <p className={css.quiet}>{t('changes.diff.binary')}</p>
   if (result.patch.trim() === '') return <p className={css.quiet}>{t('changes.diff.empty')}</p>
   return (
@@ -114,7 +115,7 @@ function Diff({ state, t }: { state: DiffState; t: Translate }) {
 
 /**
  * The git status reading and its per-file patches.
- * @param props - the target, the translator, and the drawer's face.
+ * @param props - the target, the translator, and the dock's face.
  * @returns the panel body.
  * @see {@link PanelProps}
  */
@@ -257,27 +258,26 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
                 ? t('changes.branch.detached')
                 : status.branch ?? t('changes.branch.unborn')}
             </span>
-            {status.ahead > 0 && <span className={css.pill}>{t('changes.ahead', { n: status.ahead })}</span>}
-            {status.behind > 0 && <span className={css.pill}>{t('changes.behind', { n: status.behind })}</span>}
+            {status.ahead > 0 && <Badge>{t('changes.ahead', { n: status.ahead })}</Badge>}
+            {status.behind > 0 && <Badge>{t('changes.behind', { n: status.behind })}</Badge>}
             <span className={css.spacer} />
             <span className={css.quietInline}>{t('changes.count', { n: total })}</span>
           </>
         )}
         {status?.ok !== true && <span className={css.spacer} />}
-        <button
-          type="button"
-          className={css.toolButton}
+        <Button
+          size="icon"
           aria-label={t('panel.refresh')}
           title={t('panel.refresh')}
           onClick={() => { setGeneration(value => value + 1) }}
         >
           <IconRefreshOutline14 />
-        </button>
+        </Button>
       </div>
 
       {write?.canCommit === true && (
         <div className={css.commitBox}>
-          <textarea
+          <Textarea
             className={css.commitMessage}
             aria-label={t('changes.commit.message')}
             placeholder={t('changes.commit.placeholder')}
@@ -296,20 +296,13 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
             }}
           />
           <div className={css.commitRow}>
-            <label className={css.commitAmend}>
-              <input
-                type="checkbox"
-                className={css.commitCheckbox}
-                disabled={writing}
-                checked={amend}
-                onChange={(event) => { setAmend(event.target.checked) }}
-              />
+            <CheckboxRow checked={amend} disabled={writing} onCheckedChange={setAmend}>
               {t('changes.commit.amend')}
-            </label>
+            </CheckboxRow>
             <span className={css.spacer} />
-            <button
-              type="button"
-              className={css.commitButton}
+            <Button
+              variant="default"
+              size="sm"
               // Amending has something to record with an empty index; an ordinary commit does not.
               disabled={writing || message.trim() === '' || (stagedCount === 0 && !amend)}
               onClick={record}
@@ -320,7 +313,7 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
                 // Counted copy takes one key per plural form: English needs "1 file" against
                 // "2 files", and a single template would print "1 files" for the commonest case.
                 : t(stagedCount === 1 ? 'changes.commit.count.one' : 'changes.commit.count.other', { n: stagedCount })}
-            </button>
+            </Button>
           </div>
           <p className={css.commitHint}>
             {write.author === undefined
@@ -331,9 +324,9 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
       )}
 
       <div className={css.scroll}>
-        {error !== undefined && <p className={css.error}>{error}</p>}
+        {error !== undefined && <Alert tone="destructive" className={css.panelAlert}>{error}</Alert>}
         {status === undefined && error === undefined && <p className={css.quiet}>{t('panel.loading')}</p>}
-        {status?.ok === false && <p className={css.error}>{status.message}</p>}
+        {status?.ok === false && <Alert tone="destructive" className={css.panelAlert}>{status.message}</Alert>}
         {status?.ok === true && total === 0 && <p className={css.quiet}>{t('changes.empty')}</p>}
         {status?.ok === true && write?.canStage === false && total > 0 && (
           <p className={css.quiet}>{t('changes.readOnly')}</p>
@@ -344,8 +337,8 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
               {t(`changes.group.${group}` as 'changes.group.staged')}
               <span className={css.groupCount}>{rows.length}</span>
               {write?.canStage === true && group !== 'conflicted' && (
-                <button
-                  type="button"
+                <Button
+                  size="sm"
                   className={css.groupAction}
                   disabled={writing}
                   onClick={() => {
@@ -355,7 +348,7 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
                   }}
                 >
                   {group === 'staged' ? t('changes.unstage.all') : t('changes.stage.all')}
-                </button>
+                </Button>
               )}
             </h3>
             {rows.map((change) => {
@@ -376,8 +369,8 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
                       />
                     </button>
                     {write?.canStage === true && group !== 'conflicted' && (
-                      <button
-                        type="button"
+                      <Button
+                        size="icon"
                         className={css.rowAction}
                         aria-label={group === 'staged' ? t('changes.unstage') : t('changes.stage')}
                         title={group === 'staged' ? t('changes.unstage') : t('changes.stage')}
@@ -388,15 +381,16 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
                         }}
                       >
                         {group === 'staged' ? <IconCloseOutline16 /> : <IconCheckOutline16 />}
-                      </button>
+                      </Button>
                     )}
                   </div>
                   {open && (
                     <div className={css.diffBlock}>
                       {state?.result?.ok === true && !state.result.binary && state.result.patch !== '' && (
-                        <button
-                          type="button"
+                        <Button
+                          size="sm"
                           className={css.copyButton}
+                          icon={<IconCopyOutline16 />}
                           onClick={() => {
                             void copy(state.result?.ok === true ? state.result.patch : '').then((done) => {
                               if (!done) return
@@ -406,9 +400,8 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
                             })
                           }}
                         >
-                          <IconCopyOutline16 />
                           {copied ? t('changes.diff.copied') : t('changes.diff.copy')}
-                        </button>
+                        </Button>
                       )}
                       <Diff state={state ?? { loading: true, result: undefined, error: undefined }} t={t} />
                     </div>

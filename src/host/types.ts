@@ -36,8 +36,6 @@ export type DeleteMode = 'archive' | 'purge'
 
 /** The `advanced-sidebar` settings section: everything a deployment or a person can change. */
 export interface AdvancedSidebarSettings {
-  /** Show the menu trigger at the sidebar foot, beside Settings. */
-  readonly showInSidebar: boolean
   /** Show the menu trigger in the session header, acting on the open session. */
   readonly showInSessionHeader: boolean
   /** Offer the Git changes entry. */
@@ -56,7 +54,10 @@ export interface AdvancedSidebarSettings {
   readonly showDelete: boolean
   /** Offer the Preview entry. */
   readonly showPreview: boolean
-  /** Panel width in pixels; the drawer clamps it to the viewport at render time. */
+  /**
+   * Dock width in pixels, and where a resize is stored. The dock clamps it to what the app frame
+   * can spare at render time, so a wide preference is safe on a narrow window.
+   */
   readonly panelWidth: number
   /** Ask before Delete commits. */
   readonly confirmDelete: boolean

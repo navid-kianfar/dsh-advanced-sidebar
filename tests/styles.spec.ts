@@ -46,6 +46,7 @@ describe('stylesheets', () => {
   it('ships at least one stylesheet per rendered surface', () => {
     expect(sheets.map(sheet => sheet.file.split('/').pop()).sort()).toEqual([
       'ActionMenu.module.css', 'PanelHost.module.css', 'Panels.module.css', 'SettingsCard.module.css',
+      'Ui.module.css',
     ])
   })
 
@@ -54,27 +55,34 @@ describe('stylesheets', () => {
     expect(declared.has('--dsw-alias-label-primary')).toBe(true)
   })
 
-  it('uses only custom properties ui-theme declares', () => {
+  it('uses only custom properties ui-theme declares, or this package\'s own', () => {
     const missing: string[] = []
     for (const sheet of sheets) {
       for (const match of sheet.text.matchAll(/var\(\s*(--[\w-]+)/g)) {
         const name = match[1] ?? ''
-        // The panel width is this package's own property, set inline by the drawer.
-        if (name === '--dsh-advanced-panel-width') continue
+        // `--dsh-*` is this package's own namespace: the dock's reserved width is set on the app
+        // frame by PanelHost, so ui-theme cannot be expected to declare it. Everything else must be
+        // a token the theme owns.
+        if (name.startsWith('--dsh-advanced-')) continue
         if (!declared.has(name)) missing.push(`${sheet.file}: ${name}`)
       }
     }
     expect(missing).toEqual([])
   })
 
+  it('reserves the frame width through this package\'s own property, not a theme token', () => {
+    const dock = sheets.find(sheet => sheet.file.endsWith('PanelHost.module.css'))
+    expect(dock).toBeDefined()
+    // Both halves of the reservation must key on the same property, or the frame's details handle
+    // would drift away from the column border it drags.
+    expect(dock?.text).toContain('[data-dsh-advanced-dock] {')
+    expect(dock?.text.match(/--dsh-advanced-dock-reserved/g)?.length).toBe(2)
+  })
+
   it('never falls back to a literal behind a token', () => {
     const fallbacks: string[] = []
     for (const sheet of sheets) {
-      for (const match of sheet.text.matchAll(/var\(\s*--[\w-]+\s*,([^)]*)\)/g)) {
-        const fallback = (match[1] ?? '').trim()
-        // The drawer's own width has a literal default on purpose: the inline property is absent
-        // until the settings scope resolves, and a zero-width drawer would be worse than a default.
-        if (sheet.text.includes('--dsh-advanced-panel-width') && fallback === '420px') continue
+      for (const match of sheet.text.matchAll(/var\(\s*--[\w-]+\s*,[^)]*\)/g)) {
         fallbacks.push(`${sheet.file}: ${match[0]}`)
       }
     }

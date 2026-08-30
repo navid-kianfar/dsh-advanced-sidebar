@@ -1,11 +1,14 @@
 /**
- * Advanced sidebar plugin, browser half: four registrations over one Host endpoint and one shared
+ * Advanced sidebar plugin, browser half: three registrations over one Host endpoint and one shared
  * piece of state.
  *
- * - `sidebar.footer.action` — the More actions trigger beside Settings.
- * - `conversation.session.header.utilities` — the same menu on the open session.
- * - `shell.overlay` — the drawer holding whichever panel is open, plus the Delete confirmation.
+ * - `conversation.session.header.utilities` — the menu on the open session.
+ * - `shell.overlay` — the resizable dock holding whichever panel is open, plus the Delete
+ *   confirmation.
  * - `settings.plugin.item` — the card on the plugin-configuration tab, keyed by the namespace.
+ *
+ * There was a fourth, at the sidebar foot; it was withdrawn, so the column has no action of this
+ * plugin's in it and the menu acts only on the session it sits in.
  *
  * The seats have no common React ancestor, so what a person opened lives in a {@link PanelController}
  * this module owns and hands to each registration through its inject face. Archiving and directory
@@ -22,9 +25,8 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the settings shell's ctx.settingsScope Context merge.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-// Type-only: the SlotMap merges of the four slots occupied below.
+// Type-only: the SlotMap merges of the three slots occupied below.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 // The generated Host-for-Client contract for this plugin's own endpoint. Importing it here — rather
@@ -36,15 +38,17 @@ import { LOCALE_NS, SETTINGS_NS, type MenuInjected, type PanelHostInjected, type
 import { PanelController, type OperationTarget } from './controller.ts'
 import { PanelHost } from './PanelHost.tsx'
 import { SettingsCard } from './SettingsCard.tsx'
-import { HeaderMenu, SidebarMenu } from './Seats.tsx'
+import { HeaderMenu } from './Seats.tsx'
 import { en, zh } from './locales.ts'
 
 export type { AdvancedSidebarKey } from './locales.ts'
 export type {
   HeaderMenuProps, MenuInjected, PanelHostInjected, PanelHostProps, SettingsCardInjected,
-  SettingsCardProps, SidebarMenuProps, Translate,
+  SettingsCardProps, Translate,
 } from './contract.ts'
-export type { OperationTarget, PanelKind, SidebarState } from './controller.ts'
+export type {
+  OperationTarget, PanelKind, SidebarState, TerminalGroup, TerminalTab,
+} from './controller.ts'
 
 /**
  * Required services of the OUTER plugin: locale and the Remote mount point.
@@ -76,12 +80,11 @@ export async function apply(ctx: ClientContext): Promise<void> {
 }
 
 /**
- * Register the four seats against a context that has the namespace.
+ * Register the three seats against a context that has the namespace.
  * @param ctx - the child fiber, with `remote.advancedSidebar` injected.
  */
 function surface(ctx: ClientContext): void {
   const controller = new PanelController()
-  ctx.effect(() => () => { controller.reset() }, 'advanced-sidebar: panel state')
 
   // Every endpoint returns the carrier's RemoteResult envelope. A transport failure is a different
   // fact from a business failure, so it is thrown rather than folded into the union the Host
@@ -94,9 +97,38 @@ function surface(ctx: ClientContext): void {
   const describe = (signal?: AbortSignal) => remote.describe(signal).then(unwrap)
   const scope = ctx.settingsScope.bind<AdvancedSidebarSettings>({ namespace: SETTINGS_NS })
 
+  // Panel terminals outlive the panel that opened them, so teardown is what reaps them. The Host
+  // also closes every one of its own on unload; this covers the case where only the browser half
+  // is replaced, which is what a development reload does.
+  ctx.effect(() => () => {
+    for (const terminalId of controller.allTerminals()) void remote.terminalClose({ terminalId })
+    controller.reset()
+  }, 'advanced-sidebar: panel state and open terminals')
+
   /** Report one failure as a notice; used wherever there is no panel to render it in. */
   const failed = (reason: unknown): void => {
     controller.notify('error', reason instanceof Error ? reason.message : String(reason))
+  }
+
+  /** Close one shell the Host still holds, reporting a refusal as a notice. */
+  const closeShell = async (terminalId: string): Promise<void> => {
+    try {
+      const result = await remote.terminalClose({ terminalId }).then(unwrap)
+      // `unknown-terminal` is the ordinary answer for a shell the Host already reaped, and the tab
+      // it belonged to is gone either way.
+      if (!result.ok && result.code !== 'unknown-terminal') controller.notify('error', result.message)
+    } catch (error) {
+      failed(error)
+    }
+  }
+
+  /**
+   * Withdraw everything one session owned, including the shells opened in its directory: the
+   * session is gone, so nothing in the browser could reach them again.
+   */
+  const forgetSession = (sessionId: string): void => {
+    for (const terminalId of controller.dropTerminals(sessionId)) void closeShell(terminalId)
+    controller.forget(sessionId)
   }
 
   const openIn = async (targetId: string, path: string): Promise<void> => {
@@ -111,7 +143,7 @@ function surface(ctx: ClientContext): void {
   const archive = async (target: OperationTarget): Promise<void> => {
     try {
       await ctx.workspaces.archiveSession(target.sessionId as Parameters<typeof ctx.workspaces.archiveSession>[0])
-      controller.forget(target.sessionId)
+      forgetSession(target.sessionId)
       controller.notify('info', ctx.locale.bind(LOCALE_NS)('archive.done', { name: target.title }))
     } catch (error) {
       failed(error)
@@ -125,7 +157,7 @@ function surface(ctx: ClientContext): void {
       const result = await remote.deleteSession({ sessionId: target.sessionId }).then(unwrap)
       controller.dismissDelete()
       if (!result.ok) { controller.notify('error', result.message); return }
-      controller.forget(target.sessionId)
+      forgetSession(target.sessionId)
       if (result.purged) {
         controller.notify('info', t('delete.done.purge', { name: target.title }))
       } else if (result.purgeSkippedReason !== undefined) {
@@ -167,16 +199,6 @@ function surface(ctx: ClientContext): void {
     archive,
     requestDelete,
   })
-
-  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-    name: 'sidebar.footer.action',
-    id: 'advanced-sidebar',
-    // After any shipped footer action: this is an addition to the column, not a replacement of
-    // whatever a deployment already put there.
-    order: 50,
-    locale: LOCALE_NS,
-    inject: menuInjected,
-  }, SidebarMenu))
 
   ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
     name: 'conversation.session.header.utilities',
@@ -232,9 +254,18 @@ function surface(ctx: ClientContext): void {
         }
       },
       close: () => { controller.close() },
+      setDockWidth: (width) => { controller.setDockWidth(width) },
+      setPanelWidth: width => scope.set('panelWidth', width),
+      addTerminal: (key, tabId) => { controller.addTerminal(key, tabId) },
+      settleTerminal: (key, tabId, outcome) => { controller.settleTerminal(key, tabId, outcome) },
+      activateTerminal: (key, tabId) => { controller.activateTerminal(key, tabId) },
+      closeTerminal: async (key, tabId) => {
+        const terminalId = controller.removeTerminal(key, tabId)
+        if (terminalId !== undefined) await closeShell(terminalId)
+      },
       dismissNotice: (id) => { controller.dismissNotice(id) },
       dismissDelete: () => { controller.dismissDelete() },
-      forgetSession: (sessionId) => { controller.forget(sessionId) },
+      forgetSession,
       commitDelete,
       notify: (tone, text) => { controller.notify(tone, text) },
     }),

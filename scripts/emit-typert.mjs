@@ -61,7 +61,6 @@ const taskFailure = `z.object({
   'message': z.string().readonly(),
 })`
 const settingsSection = `z.object({
-  'showInSidebar': z.boolean().readonly(),
   'showInSessionHeader': z.boolean().readonly(),
   'showChanges': z.boolean().readonly(),
   'showTerminal': z.boolean().readonly(),

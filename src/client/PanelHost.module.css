@@ -1,29 +1,85 @@
-/* The drawer, the notice, and the confirmation footer.
+/* The dock, its drag handle, the notice, and the frame reservation that keeps the dock a column
+ * rather than a layer over one.
  *
- * `shell.overlay` is a click-through layer at the frame's top, so every box here opts back into
- * pointer events explicitly; anything that does not is transparent to the app underneath. */
+ * `shell.overlay` is a click-through layer spanning the frame's padding box, so the dock is
+ * positioned inside it and opts back into pointer events; anything that does not is transparent to
+ * the app underneath. */
 
-.card {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  bottom: 12px;
-  /* The setting decides the width, the viewport decides the ceiling: a 900px preference on a narrow
-     window must not push the drawer off screen, and on a phone-width one it must not become a
-     full-screen sheet with none of a modal's affordances — no scrim, no click-outside — so it keeps
-     a real margin from the left edge. */
-  width: min(var(--dsh-advanced-panel-width, 420px), calc(100vw - 72px));
+.dock {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  /* Width is written by the component: from the settings section, from the width a drag settled
+     on, and at pointer cadence during the drag itself. */
   display: flex;
   flex-direction: column;
   min-height: 0;
   pointer-events: auto;
   box-sizing: border-box;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 16px;
-  background: var(--dsw-alias-bg-layer-2);
-  box-shadow: var(--dsw-shadow-lv3);
+  border-left: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
   overflow: hidden;
+}
+
+/* Below the width at which pushing would leave no conversation the dock stops reserving space and
+   floats: it keeps a margin, rounds its outer corners, and takes an elevation, because a column
+   drawn over content has to read as being over it. */
+.dockFloating {
+  top: 8px;
+  bottom: 8px;
+  right: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+/* An 8px hit strip straddling the dock's left edge, with the same 12x32 pill the frame's own
+   details handle uses so the two read as one mechanism. */
+.resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 8px;
+  margin-left: -4px;
+  z-index: 1;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.resize::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 32px;
+  border-radius: 10px;
+  box-sizing: border-box;
+  background: var(--dsw-alias-button-floating-fill);
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  opacity: 0;
+  transition: opacity var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.dock:hover .resize::after,
+.resize:hover::after,
+.resize:focus-visible::after,
+.dockDragging .resize::after {
+  opacity: 1;
+}
+
+.resize:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
+}
+
+/* The panels below keep rendering while the pointer drags; text selection across them does not. */
+.dockDragging {
+  user-select: none;
 }
 
 .head {
@@ -73,137 +129,36 @@
   flex-direction: column;
 }
 
-.iconButton {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-}
-
-.iconButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
-}
-
-.iconButton:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: -2px;
-}
-
-.iconButton:disabled {
-  color: var(--dsw-alias-label-dimmed);
-  cursor: default;
-}
-
-.iconButton:disabled:hover {
-  background: transparent;
-}
-
-/* Centred along the bottom, not tucked into the drawer's own corner: the drawer occupies the whole
+/* Centred along the bottom, not tucked into the dock's own corner: the dock occupies the whole
    right edge, so a notice anchored there would paint over the panel it is reporting on. */
-.notice {
+.noticeSlot {
   position: fixed;
   left: 50%;
   bottom: 16px;
   transform: translateX(-50%);
   z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
   max-width: min(520px, calc(100vw - 24px));
-  padding: 8px 8px 8px 14px;
   pointer-events: auto;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  background: var(--dsw-alias-toast-bg);
   box-shadow: var(--dsw-shadow-lv2);
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 20px;
-}
-
-.noticeError {
-  border-color: var(--dsw-alias-state-error-primary);
-}
-
-.noticeText {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.noticeClose {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-}
-
-.noticeClose:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
-}
-
-/* --- confirmation footer --- */
-
-.dialogFooter {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.dialogCancel,
-.dialogConfirm {
-  height: 34px;
-  padding: 0 16px;
   border-radius: 8px;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
 }
 
-.dialogCancel {
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: transparent;
-  color: var(--dsw-alias-label-primary);
+/* --- the frame reservation ---
+ *
+ * These two rules are the whole difference between a dock and an overlay. They are attribute
+ * selectors on purpose: CSS Modules scopes class names, so a class here could never match the app
+ * frame, while `data-dsh-advanced-dock` is set by this component on the frame element and
+ * `data-side` is AppFrame's own marker on its drag handles.
+ *
+ * With no dock open the custom property is absent, which makes each declaration invalid at
+ * computed-value time and leaves the property at its initial value — zero padding, no transform. */
+
+[data-dsh-advanced-dock] {
+  padding-inline-end: var(--dsh-advanced-dock-reserved);
 }
 
-.dialogCancel:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-/* Destructive, and drawn as such: this is the one control in the plugin that can remove a log. */
-.dialogConfirm {
-  border: 1px solid var(--dsw-alias-state-error-primary);
-  background: var(--dsw-alias-state-error-primary);
-  color: var(--dsw-alias-label-primary-inverted);
-}
-
-.dialogConfirm:hover {
-  background: var(--dsw-alias-interactive-bg-hover-danger);
-}
-
-.dialogCancel:disabled,
-.dialogConfirm:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.dialogCancel:focus-visible,
-.dialogConfirm:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 2px;
+/* The frame places its details handle from its own full width, which now ends behind the dock; the
+   handle is shifted by exactly what the dock reserved so it stays on the column border it drags. */
+[data-dsh-advanced-dock] > [data-side='details'] {
+  transform: translateX(calc(-1 * var(--dsh-advanced-dock-reserved)));
 }

@@ -10,9 +10,8 @@
 
 import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only: pulls the SlotMap merges of the four slots these entries occupy.
+// Type-only: pulls the SlotMap merges of the three slots these entries occupy.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {
@@ -27,7 +26,7 @@ import type { AdvancedSidebarKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** Copy of the sidebar menu, its four drawers, the delete dialog, and the settings card. */
+    /** Copy of the session menu, the dock's five panels, the delete dialog, and the settings card. */
     advancedSidebar: AdvancedSidebarKey
   }
 }
@@ -47,14 +46,11 @@ export const SETTINGS_NS = 'advanced-sidebar'
 /** The Remote namespace, read as `ctx.remote.advancedSidebar.…`. */
 export const REMOTE_NS = 'advancedSidebar'
 
-/**
- * Everything both menu seats need. One face for two registrations, because the sidebar foot and the
- * session header offer exactly the same operations — only the trigger's geometry differs.
- */
+/** Everything the session header's menu seat needs. */
 export interface MenuInjected {
   /** Registrant-private reactive sources the renderer binds to `use<Name>` hooks. */
   hooks: {
-    /** Cross-registration panel state; the menu writes it and the drawer reads it. */
+    /** Cross-registration panel state; the menu writes it and the dock reads it. */
     sidebar: PanelController
     /** The bound `advanced-sidebar` settings scope, which decides the menu's entries. */
     settings: SettingsScope<AdvancedSidebarSettings>
@@ -66,8 +62,8 @@ export interface MenuInjected {
    */
   describe: (signal?: AbortSignal) => Promise<AdvancedSidebarView>
   /**
-   * Show one drawer.
-   * @param panel - which drawer.
+   * Show one panel in the dock.
+   * @param panel - which panel.
    * @param target - the session and directory it acts on.
    */
   openPanel: (panel: PanelKind, target: OperationTarget) => void
@@ -94,25 +90,21 @@ export interface MenuInjected {
   requestDelete: (target: OperationTarget) => Promise<void>
 }
 
-/** Full props of the sidebar-foot trigger. */
-export type SidebarMenuProps =
-  PropsRuntime<'sidebar.footer.action'> & PropsLocale<'advancedSidebar'> & InjectFace<MenuInjected>
-
 /** Full props of the session-header trigger. */
 export type HeaderMenuProps =
   PropsRuntime<'conversation.session.header.utilities'> & PropsLocale<'advancedSidebar'> & InjectFace<MenuInjected>
 
-/** Everything the drawer and its confirmation dialog need. */
+/** Everything the dock and its confirmation dialog need. */
 export interface PanelHostInjected {
   /** Registrant-private reactive sources the renderer binds to `use<Name>` hooks. */
   hooks: {
-    /** Cross-registration panel state; the drawer reads it and its own controls write it. */
+    /** Cross-registration panel state; the dock reads it and its own controls write it. */
     sidebar: PanelController
-    /** The bound settings scope, which decides the drawer's width and which verbs it offers. */
+    /** The bound settings scope, which decides the dock's width and which verbs it offers. */
     settings: SettingsScope<AdvancedSidebarSettings>
   }
   /**
-   * Read the Host's capability view for the drawer's own gating.
+   * Read the Host's capability view for the dock's own gating.
    * @param signal - cancellation for the probe.
    * @returns the capability view.
    */
@@ -269,8 +261,47 @@ export interface PanelHostInjected {
    * @returns whether the browser accepted it.
    */
   copy: (text: string) => Promise<boolean>
-  /** Close the drawer. */
+  /** Close the dock. */
   close: () => void
+  /**
+   * Store the width a resize settled on, for this browser session.
+   * @param width - the width in pixels.
+   */
+  setDockWidth: (width: number) => void
+  /**
+   * Persist the width a resize settled on into the settings section.
+   * @param width - the width in pixels.
+   * @returns settlement after the write; refused scopes reject and the dock keeps its own copy.
+   */
+  setPanelWidth: (width: number) => Promise<void>
+  /**
+   * Add one terminal tab, in the state it has before its shell has been allocated.
+   * @param key - the terminal group key.
+   * @param tabId - the caller-generated tab id the allocation will be recorded against.
+   */
+  addTerminal: (key: string, tabId: string) => void
+  /**
+   * Record what one tab's allocation answered.
+   * @param key - the terminal group key.
+   * @param tabId - the tab the allocation was for.
+   * @param outcome - the handle and the shell, or the failure.
+   */
+  settleTerminal: (
+    key: string, tabId: string, outcome: { terminalId: string; shell: string } | { error: string },
+  ) => void
+  /**
+   * Show one tab's screen.
+   * @param key - the terminal group key.
+   * @param tabId - the tab to show.
+   */
+  activateTerminal: (key: string, tabId: string) => void
+  /**
+   * Drop one tab and close the shell it held.
+   * @param key - the terminal group key.
+   * @param tabId - the tab to close.
+   * @returns after the Host answered; a failure surfaces as a notice.
+   */
+  closeTerminal: (key: string, tabId: string) => Promise<void>
   /**
    * Dismiss one notice, ignoring a request for one already replaced.
    * @param id - the notice to dismiss.
@@ -290,14 +321,14 @@ export interface PanelHostInjected {
    */
   commitDelete: (target: OperationTarget) => Promise<void>
   /**
-   * Report one message under the drawer.
+   * Report one message under the dock.
    * @param tone - whether the message reports a failure.
    * @param text - the message.
    */
   notify: (tone: 'info' | 'error', text: string) => void
 }
 
-/** Full props of the frame-wide drawer. */
+/** Full props of the frame-wide dock. */
 export type PanelHostProps =
   PropsRuntime<'shell.overlay'> & PropsLocale<'advancedSidebar'> & InjectFace<PanelHostInjected>
 

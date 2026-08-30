@@ -147,121 +147,10 @@
   overflow-wrap: anywhere;
 }
 
-.badge {
-  border-radius: 999px;
-  padding: 1px 8px;
-  font-size: 11px;
-  line-height: 17px;
-  white-space: nowrap;
-  font-weight: 500;
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-secondary);
-}
-
-.badgeMuted {
-  border-radius: 999px;
-  padding: 1px 8px;
-  font-size: 11px;
-  line-height: 17px;
-  white-space: nowrap;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.input {
-  width: 140px;
-  flex: none;
-  height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-3);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-primary);
-}
-
-.input:focus-visible {
-  outline: none;
-  border-color: var(--dsw-alias-brand-primary);
-}
-
-.input:disabled {
-  color: var(--dsw-alias-label-tertiary);
-  cursor: default;
-}
-
+/* The kit's select supplies the control; the field row supplies only its width bound. */
 .select {
   flex: none;
-  height: 34px;
-  padding: 0 8px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-3);
-  font: inherit;
-  font-size: 13px;
-  color: var(--dsw-alias-label-primary);
-  cursor: pointer;
-}
-
-.select:focus-visible {
-  outline: none;
-  border-color: var(--dsw-alias-brand-primary);
-}
-
-.select:disabled {
-  color: var(--dsw-alias-label-tertiary);
-  cursor: default;
-}
-
-/* A switch rather than a bare checkbox: these rows sit in a column of labelled fields, where a
-   default checkbox is the only control that would not look placed. Built from the same tokens as
-   the inputs above so it follows the theme. */
-.switch {
-  appearance: none;
-  flex: none;
-  position: relative;
-  width: 34px;
-  height: 20px;
-  margin: 0;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-3);
-  cursor: pointer;
-  transition: background .16s, border-color .16s;
-}
-
-.switch::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  margin-top: -7px;
-  border-radius: 999px;
-  background: var(--dsw-alias-label-tertiary);
-  transition: transform .16s, background .16s;
-}
-
-.switch:checked {
-  background: var(--dsw-alias-brand-primary);
-  border-color: var(--dsw-alias-brand-primary);
-}
-
-.switch:checked::after {
-  transform: translateX(14px);
-  background: var(--dsw-alias-bg-layer-3);
-}
-
-.switch:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 2px;
-}
-
-.switch:disabled {
-  cursor: default;
-  opacity: 0.4;
+  min-width: 140px;
 }
 
 /* --- Open in roster --- */
@@ -296,4 +185,9 @@
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-primary);
+}
+
+/* The shell field is a path, so it is monospaced and wider than the numeric fields beside it. */
+.shellInput {
+  max-width: 220px;
 }

@@ -1,7 +1,7 @@
 {
   "name": "@achasoft/dsh-advanced-sidebar",
   "version": "0.1.0",
-  "description": "Advanced sidebar operations for the DeepSeek Harness Web Client: git changes, a terminal, a file browser, background tasks, Open in, Archive and Delete, on the sidebar foot and the session header",
+  "description": "Advanced sidebar operations for the DeepSeek Harness Web Client: git changes, multi-session terminals, a file browser, a dev-server preview, background tasks, Open in, Archive and Delete, in a resizable dock beside the conversation",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -45,8 +45,7 @@
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-ui-settings-plugins",
-        "@deepseek-ai/dsh-client-ui-sidebar"
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
       ]
     }
   },
@@ -101,6 +100,7 @@
     "@deepseek-ai/schemastery": "link:../../deepseek-harness/vendor/schemastery",
     "@types/node": "^22.20.1",
     "@types/react": "~18.3.1",
+    "@types/react-dom": "^18.3.7",
     "lightningcss": "^1.30.1",
     "react": "^18.2.0",
     "tsdown": "^0.15.6",

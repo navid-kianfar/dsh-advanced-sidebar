@@ -3,8 +3,9 @@
  *
  * It reproduces the configuration section's own chrome — an `<li>` disclosure card, and fields laid
  * out label / control / hint — because it cannot import those components: value-importing across a
- * plugin boundary fails the client bundle-purity gate, so matching is done by rebuilding against the
- * same design tokens.
+ * plugin boundary fails the client bundle-purity gate. The controls themselves come from this
+ * package's own shadcn-vocabulary kit, so the card matches the panels rather than the browser's
+ * default form widgets.
  *
  * There is no save or discard. Every control writes immediately through the bound settings scope,
  * which owns revision fencing, so the card carries no staged form whose unsaved state would need
@@ -17,10 +18,11 @@ import type { ReactNode } from 'react'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the keyed settings.plugin.item slot declaration.
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
-import type { AdvancedSidebarSettings } from '../host/types.ts'
+import type { AdvancedSidebarSettings, DeleteMode } from '../host/types.ts'
 import type { SettingsCardProps } from './contract.ts'
 import { cx } from './cx.ts'
 import { useCapabilityView } from './use-capability.ts'
+import { Badge, Input, Select, Separator, Switch } from './ui/index.ts'
 import css from './SettingsCard.module.css'
 
 /** One labelled row: a control to the right of its label, with a hint beneath. */
@@ -71,14 +73,12 @@ export function SettingsCard(props: SettingsCardProps) {
       label={label}
       hint={hint}
       control={(
-        <input
+        <Switch
           id={`${fieldId}-${field}`}
-          className={css.switch}
-          type="checkbox"
-          role="switch"
-          disabled={disabled}
           checked={current}
-          onChange={(event) => { void setField(field, event.target.checked) }}
+          disabled={disabled}
+          aria-label={label}
+          onCheckedChange={(next) => { void setField(field, next) }}
         />
       )}
     />
@@ -93,9 +93,8 @@ export function SettingsCard(props: SettingsCardProps) {
       label={label}
       hint={hint}
       control={(
-        <input
+        <Input
           id={`${fieldId}-${field}`}
-          className={css.input}
           type="number"
           min={min}
           max={max}
@@ -137,15 +136,15 @@ export function SettingsCard(props: SettingsCardProps) {
         <div className={css.body}>
           <div className={css.groupHead}>
             <span className={css.groupTitle}>{t('settings.group.placement')}</span>
-            <span className={ready ? css.badge : css.badgeMuted}>
+            <Badge variant={ready ? 'success' : 'outline'}>
               {ready ? t('settings.status.ready') : t('settings.status.partial')}
-            </span>
+            </Badge>
           </div>
           {value !== undefined && (
             <>
-              {toggle('showInSidebar', t('settings.showInSidebar'), t('settings.showInSidebar.hint'), value.showInSidebar)}
               {toggle('showInSessionHeader', t('settings.showInSessionHeader'), t('settings.showInSessionHeader.hint'), value.showInSessionHeader)}
 
+              <Separator />
               <div className={css.groupHead}>
                 <span className={css.groupTitle}>{t('settings.group.entries')}</span>
               </div>
@@ -160,6 +159,7 @@ export function SettingsCard(props: SettingsCardProps) {
               {toggle('showArchive', t('settings.showArchive'), t('settings.showArchive.hint'), value.showArchive)}
               {toggle('showDelete', t('settings.showDelete'), t('settings.showDelete.hint'), value.showDelete)}
 
+              <Separator />
               <div className={css.groupHead}>
                 <span className={css.groupTitle}>{t('settings.group.behavior')}</span>
               </div>
@@ -168,14 +168,17 @@ export function SettingsCard(props: SettingsCardProps) {
                 label={t('settings.deleteMode')}
                 hint={canPurge ? t('settings.deleteMode.hint') : t('settings.deleteMode.unsupported')}
                 control={(
-                  <select
+                  <Select<DeleteMode>
                     id={`${fieldId}-deleteMode`}
                     className={css.select}
                     disabled={disabled || !canPurge}
                     value={value.deleteMode}
-                    onChange={(event) => {
-                      const mode = event.target.value
-                      if (mode !== 'archive' && mode !== 'purge') return
+                    aria-label={t('settings.deleteMode')}
+                    options={[
+                      { value: 'archive', label: t('settings.deleteMode.archive') },
+                      { value: 'purge', label: t('settings.deleteMode.purge') },
+                    ]}
+                    onValueChange={(mode) => {
                       // Purging is refused by the Host unless confirmation is on, and the schema
                       // rejects the pair — so the two writes go together, confirmation first.
                       if (mode === 'purge' && !value.confirmDelete) {
@@ -184,10 +187,7 @@ export function SettingsCard(props: SettingsCardProps) {
                       }
                       void setField('deleteMode', mode)
                     }}
-                  >
-                    <option value="archive">{t('settings.deleteMode.archive')}</option>
-                    <option value="purge">{t('settings.deleteMode.purge')}</option>
-                  </select>
+                  />
                 )}
               />
               <Field
@@ -195,16 +195,14 @@ export function SettingsCard(props: SettingsCardProps) {
                 label={t('settings.confirmDelete')}
                 hint={t('settings.confirmDelete.hint')}
                 control={(
-                  <input
+                  <Switch
                     id={`${fieldId}-confirmDelete`}
-                    className={css.switch}
-                    type="checkbox"
-                    role="switch"
+                    checked={value.confirmDelete}
+                    aria-label={t('settings.confirmDelete')}
                     // Locked on while Delete removes a log: the Host refuses the combination, and a
                     // control that writes a value the Host rejects reads as broken.
                     disabled={disabled || value.deleteMode === 'purge'}
-                    checked={value.confirmDelete}
-                    onChange={(event) => { void setField('confirmDelete', event.target.checked) }}
+                    onCheckedChange={(next) => { void setField('confirmDelete', next) }}
                   />
                 )}
               />
@@ -214,6 +212,7 @@ export function SettingsCard(props: SettingsCardProps) {
               {toggle('allowTaskKill', t('settings.allowTaskKill'), t('settings.allowTaskKill.hint'), value.allowTaskKill)}
               {toggle('showTaskOutput', t('settings.showTaskOutput'), t('settings.showTaskOutput.hint'), value.showTaskOutput)}
 
+              <Separator />
               <div className={css.groupHead}>
                 <span className={css.groupTitle}>{t('settings.group.limits')}</span>
               </div>
@@ -229,10 +228,10 @@ export function SettingsCard(props: SettingsCardProps) {
                 label={t('settings.terminalShell')}
                 hint={view?.terminal.detail ?? t('settings.terminalShell.hint')}
                 control={(
-                  <input
+                  <Input
                     id={`${fieldId}-terminalShell`}
-                    className={css.input}
-                    type="text"
+                    className={css.shellInput}
+                    code
                     spellCheck={false}
                     placeholder="/bin/zsh"
                     disabled={disabled}
@@ -242,6 +241,7 @@ export function SettingsCard(props: SettingsCardProps) {
                 )}
               />
 
+              <Separator />
               <div className={css.field}>
                 <div className={css.head}>
                   <span className={css.label}>{t('settings.previews')}</span>
@@ -254,9 +254,7 @@ export function SettingsCard(props: SettingsCardProps) {
                       {value.previews.map(preview => (
                         <li key={preview.name} className={css.target}>
                           <span className={css.targetLabel}>{preview.name}</span>
-                          <span className={css.badgeMuted}>
-                            {preview.port > 0 ? `:${String(preview.port)}` : preview.url}
-                          </span>
+                          <Badge code>{preview.port > 0 ? `:${String(preview.port)}` : preview.url}</Badge>
                         </li>
                       ))}
                     </ul>
@@ -275,9 +273,9 @@ export function SettingsCard(props: SettingsCardProps) {
                       {view.openIn.map(entry => (
                         <li key={entry.id} className={css.target}>
                           <span className={css.targetLabel}>{entry.label}</span>
-                          <span className={entry.available ? css.badge : css.badgeMuted}>
+                          <Badge variant={entry.available ? 'success' : 'outline'}>
                             {entry.available ? t('settings.editors.available') : t('settings.editors.missing')}
-                          </span>
+                          </Badge>
                         </li>
                       ))}
                     </ul>

@@ -16,9 +16,16 @@ import { IconChevronDownOutline14, IconChevronRightOutline14, IconStopFill16, St
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AdvancedSidebarSettings, TaskOutputResult } from '../../host/types.ts'
 import type { Translate } from '../contract.ts'
+import { Alert, Badge, Button, DatePicker, Input, Select, startOfDay } from '../ui/index.ts'
 import { cx } from '../cx.ts'
 import { transportMessage, type PanelProps } from './shared.tsx'
 import css from './Panels.module.css'
+
+/** The status filter's own value set: every lifecycle state, plus the row that filters nothing. */
+type StatusFilter = JobView['status'] | 'all'
+
+/** The lifecycle states, in the order the filter offers them. */
+const STATUSES: readonly JobView['status'][] = ['running', 'stopping', 'completed', 'killed', 'failed']
 
 /** Stable empty list, so a session with no tasks keeps one array identity across renders. */
 const NO_TASKS: readonly JobView[] = []
@@ -91,7 +98,7 @@ function ordered(tasks: readonly JobView[]): JobView[] {
   })
 }
 
-/** The panel's own props: the drawer's share plus the two facts only the drawer can supply. */
+/** The panel's own props: the dock's share plus the two facts only the dock can supply. */
 export interface TasksPanelProps extends PanelProps {
   /** The global session feed the mirror rides on. */
   useSessions: SnapshotSelectorHook<SessionListState>
@@ -101,7 +108,7 @@ export interface TasksPanelProps extends PanelProps {
 
 /**
  * The task list, Stop, and the output of a settled task.
- * @param props - the target, the translator, the drawer's face, the session feed, and the settings.
+ * @param props - the target, the translator, the dock's face, the session feed, and the settings.
  * @returns the panel body.
  * @see {@link TasksPanelProps}
  */
@@ -114,8 +121,23 @@ export function TasksPanel({ target, t, face, useSessions, settings }: TasksPane
   const [expanded, setExpanded] = useState<string | undefined>(undefined)
   const [outputs, setOutputs] = useState<Readonly<Record<string, OutputState>>>({})
   const [busy, setBusy] = useState<string | undefined>(undefined)
+  const [text, setText] = useState('')
+  const [status, setStatus] = useState<StatusFilter>('all')
+  const [since, setSince] = useState<Date | undefined>(undefined)
 
-  const rows = useMemo(() => ordered(tasks), [tasks])
+  const all = useMemo(() => ordered(tasks), [tasks])
+  const rows = useMemo(() => {
+    const needle = text.trim().toLowerCase()
+    // `startedAt` is an instant and the picker answers with a local midnight, so the comparison is
+    // against that midnight rather than against a formatted day: a task started at 23:30 belongs to
+    // the day the operator saw on the clock.
+    const from = since === undefined ? undefined : startOfDay(since).getTime()
+    return all.filter(task => (needle === ''
+      || task.label.toLowerCase().includes(needle)
+      || task.kind.toLowerCase().includes(needle))
+      && (status === 'all' || task.status === status)
+      && (from === undefined || task.startedAt >= from))
+  }, [all, text, status, since])
   const liveCount = useMemo(() => tasks.filter(isLive).length, [tasks])
 
   // The clock runs only while something moves: a list of finished tasks re-renders never.
@@ -162,9 +184,52 @@ export function TasksPanel({ target, t, face, useSessions, settings }: TasksPane
   const canStop = settings?.allowTaskKill === true
   const canRead = settings?.showTaskOutput === true
 
+  const filtered = rows.length !== all.length
+
   return (
-    <div className={css.scroll}>
-      {rows.length === 0 && <p className={css.quiet}>{t('tasks.empty')}</p>}
+    <>
+      <div className={css.filterBar}>
+        <Input
+          className={css.filterText}
+          aria-label={t('tasks.filter.text')}
+          placeholder={t('tasks.filter.text.placeholder')}
+          value={text}
+          onChange={(event) => { setText(event.target.value) }}
+        />
+        <Select<StatusFilter>
+          className={css.filterControl}
+          aria-label={t('tasks.filter.status')}
+          value={status}
+          options={[
+            { value: 'all', label: t('tasks.filter.status.all') },
+            ...STATUSES.map(entry => ({
+              value: entry,
+              label: t(`tasks.status.${entry}` as 'tasks.status.running'),
+            })),
+          ]}
+          onValueChange={setStatus}
+        />
+        <DatePicker
+          className={css.filterControl}
+          aria-label={t('tasks.filter.since')}
+          value={since}
+          onValueChange={setSince}
+          placeholder={t('tasks.filter.since.any')}
+          clearLabel={t('date.clear')}
+          todayLabel={t('date.today')}
+          previousLabel={t('date.previousMonth')}
+          nextLabel={t('date.nextMonth')}
+          // A task cannot have started after now, so a later day would only ever empty the list.
+          max={new Date()}
+        />
+      </div>
+
+      <div className={css.scroll}>
+      {all.length === 0 && <p className={css.quiet}>{t('tasks.empty')}</p>}
+      {all.length > 0 && rows.length === 0 && <p className={css.quiet}>{t('tasks.filter.none')}</p>}
+      {filtered && rows.length > 0 && (
+        <p className={css.quiet}>{t('tasks.filter.count', { shown: rows.length, total: all.length })}</p>
+      )}
       {rows.map((task) => {
         const live = isLive(task)
         const elapsed = live ? now - task.startedAt : (task.finishedAt ?? task.startedAt) - task.startedAt
@@ -196,30 +261,33 @@ export function TasksPanel({ target, t, face, useSessions, settings }: TasksPane
                 )
                 : <span className={css.taskDisclosureSpacer} />}
               <StateDot state={dotState(task.status)} className={css.taskDot} />
-              <span className={css.taskKind}>{task.kind}</span>
+              <Badge variant="outline" className={css.taskKind}>{task.kind}</Badge>
               <span className={css.taskLabel} title={task.label}>{task.label}</span>
               <span className={css.taskStatus} title={task.detail ?? undefined}>
                 {task.detail ?? t(`tasks.status.${task.status}` as 'tasks.status.running')}
               </span>
               <span className={css.taskDuration}>{formatDuration(elapsed, t)}</span>
               {canStop && live && (
-                <button
-                  type="button"
-                  className={css.toolButton}
+                <Button
+                  size="icon"
                   aria-label={t('tasks.stop')}
                   title={t('tasks.stop')}
                   disabled={busy === task.id}
                   onClick={() => { stop(task.id) }}
                 >
                   <IconStopFill16 />
-                </button>
+                </Button>
               )}
             </div>
             {open && (
               <div className={css.taskOutput}>
                 {output?.loading === true && <p className={css.quiet}>{t('panel.loading')}</p>}
-                {output?.error !== undefined && <p className={css.error}>{output.error}</p>}
-                {output?.result?.ok === false && <p className={css.error}>{output.result.message}</p>}
+                {output?.error !== undefined && (
+                  <Alert tone="destructive" className={css.panelAlert}>{output.error}</Alert>
+                )}
+                {output?.result?.ok === false && (
+                  <Alert tone="destructive" className={css.panelAlert}>{output.result.message}</Alert>
+                )}
                 {output?.result?.ok === true && !output.result.readable && (
                   <p className={css.quiet}>{output.result.reason ?? t('tasks.output.withheld')}</p>
                 )}
@@ -233,6 +301,7 @@ export function TasksPanel({ target, t, face, useSessions, settings }: TasksPane
           </div>
         )
       })}
-    </div>
+      </div>
+    </>
   )
 }
