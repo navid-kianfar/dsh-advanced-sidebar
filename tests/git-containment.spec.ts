@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import { GitReader } from '../src/host/git.ts'
+import { GitReader, stripFence } from '../src/host/git.ts'
 import type { AdvancedSidebarSettings } from '../src/host/types.ts'
 
 /**
@@ -254,5 +254,26 @@ describe('GitReader commit', () => {
     const result = await new GitReader(ctx, () => SETTINGS).commit(request('reword', true))
     expect(result).toMatchObject({ ok: true })
     expect(spawns.some(argv => argv.includes('commit'))).toBe(true)
+  })
+})
+
+describe('commit-message fence stripping', () => {
+  /**
+   * The model is asked for plain text and still fences it often enough to matter: the draft goes
+   * straight into the box a person commits from, so a stray ``` would reach a commit.
+   */
+  it('removes a fence that wraps the whole answer', () => {
+    expect(stripFence('```\nfix: a thing\n```')).toBe('fix: a thing')
+    expect(stripFence('```text\nfix: a thing\n\nwhy it matters\n```')).toBe('fix: a thing\n\nwhy it matters')
+  })
+
+  it('keeps a fence the message only contains', () => {
+    const message = 'fix: quote the path\n\nThe old form was:\n\n```\ngit add $path\n```\n\nwhich word-splits.'
+    expect(stripFence(message)).toBe(message)
+  })
+
+  it('trims without otherwise touching an unfenced message', () => {
+    expect(stripFence('  fix: a thing\n')).toBe('fix: a thing')
+    expect(stripFence('   ')).toBe('')
   })
 })

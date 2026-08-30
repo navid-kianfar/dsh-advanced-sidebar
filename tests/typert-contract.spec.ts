@@ -38,7 +38,7 @@ const descriptors = TYPERT_REMOTE.descriptors as unknown as Descriptor[]
  */
 const STATUS = {
   ok: true,
-  write: { canStage: true, canCommit: true, author: 'A <a@example.com>' },
+  write: { canStage: true, canCommit: true, canPush: true, canDraftMessage: true, author: 'A <a@example.com>' },
   repositoryRoot: '/w',
   prefix: '',
   ahead: 0,
@@ -72,6 +72,11 @@ const SECTION = {
   gitTimeoutMs: 20_000,
   gitCommitTimeoutMs: 120_000,
   allowGitStaging: true,
+  allowGitPush: true,
+  gitPushTimeoutMs: 180_000,
+  allowCommitMessageDraft: true,
+  commitMessagePrompt: '',
+  commitMessageMaxBytes: 65_536,
   allowGitCommit: true,
   terminalShell: '',
   terminalScrollback: 200_000,
@@ -136,8 +141,9 @@ describe('generated Typert contract', () => {
     const cancellable = descriptors.filter(descriptor => descriptor.cancellation !== undefined)
       .map(descriptor => descriptor.method).sort()
     expect(cancellable).toEqual([
-      'deleteSession', 'describe', 'gitCommit', 'gitDiff', 'gitStage', 'gitStatus', 'gitUnstage',
-      'listEntries', 'openIn', 'previewList', 'previewStart', 'readFile', 'terminalOpen',
+      'deleteSession', 'describe', 'gitCommit', 'gitCommitMessage', 'gitDiff', 'gitPush',
+      'gitStage', 'gitStatus', 'gitUnstage', 'listEntries', 'openIn', 'previewList',
+      'previewStart', 'readFile', 'terminalOpen',
     ])
     for (const descriptor of descriptors) {
       if (descriptor.cancellation !== undefined) expect(descriptor.cancellation.parameter).toBe('signal')
@@ -148,6 +154,8 @@ describe('generated Typert contract', () => {
     const requests: Readonly<Record<string, unknown>> = {
       deleteSession: { sessionId: 's-1' },
       gitDiff: { workspacePath: '/w', path: 'a.ts', staged: false, untracked: false },
+      gitPush: { workspacePath: '/w', setUpstream: false },
+      gitCommitMessage: { workspacePath: '/w', amend: false },
       gitStatus: { workspacePath: '/w' },
       listEntries: { path: '/w/src', workspacePath: '/w' },
       openIn: { targetId: 'vscode', path: '/w' },
@@ -197,7 +205,8 @@ describe('generated Typert contract', () => {
       },
       gitDiff: { ok: true, path: 'a.ts', patch: '', binary: false, truncated: false },
       gitStatus: {
-        ok: true, write: { canStage: true, canCommit: true, author: 'A <a@example.com>' },
+        ok: true,
+        write: { canStage: true, canCommit: true, canPush: true, canDraftMessage: true, author: 'A <a@example.com>' },
         repositoryRoot: '/w', prefix: '', ahead: 0, behind: 0, detached: false,
         staged: [{ path: 'a.ts', index: 'modified', worktree: 'unmodified', untracked: false, conflicted: false }],
         unstaged: [], untracked: [], conflicted: [], truncated: false, readAt: 1,
@@ -209,6 +218,8 @@ describe('generated Typert contract', () => {
       gitStage: { ok: true, status: STATUS },
       gitUnstage: { ok: true, status: STATUS },
       gitCommit: { ok: true, commit: 'abc1234', subject: 'a message', status: STATUS, notes: '' },
+      gitPush: { ok: true, branch: 'main', remote: 'origin', published: false, status: STATUS, notes: 'main -> main' },
+      gitCommitMessage: { ok: true, message: 'fix: a thing', model: 'deepseek-official/deepseek-v4', truncated: false },
       previewList: {
         ok: true,
         servers: [{ name: 'dev', origin: 'launch-json', startable: true, state: 'ready', url: 'http://127.0.0.1:3000', port: 3000, pid: 9, startedAt: 1 }],
@@ -247,6 +258,8 @@ describe('generated Typert contract', () => {
       gitStage: { ok: false, code: 'disabled', message: 'off' },
       gitUnstage: { ok: false, code: 'path-denied', message: 'outside' },
       gitCommit: { ok: false, code: 'nothing-staged', message: 'nothing staged' },
+      gitPush: { ok: false, code: 'no-upstream', message: 'no upstream' },
+      gitCommitMessage: { ok: false, code: 'no-model', message: 'no model' },
       previewList: { ok: false, code: 'path-denied', message: 'outside' },
       previewLogs: { ok: false, code: 'unknown-server', message: 'stopped' },
       previewStart: { ok: false, code: 'not-startable', message: 'no command' },

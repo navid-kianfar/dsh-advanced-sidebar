@@ -15,8 +15,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {
-  AdvancedSidebarSettings, AdvancedSidebarView, DeleteSessionResult, GitCommitResult,
-  GitDiffRequest, GitDiffResult, GitStageResult,
+  AdvancedSidebarSettings, AdvancedSidebarView, DeleteSessionResult, GitCommitMessageResult,
+  GitCommitResult, GitDiffRequest, GitDiffResult, GitPushResult, GitStageResult,
   GitStatusResult, ListEntriesResult, PreviewListResult, PreviewLogsResult, PreviewStartResult,
   PreviewStopResult, ReadFileResult, TaskKillResult, TaskOutputResult,
   TerminalAckResult, TerminalOpenResult, TerminalReadResult,
@@ -145,6 +145,23 @@ export interface PanelHostInjected {
    * @returns the new commit and the reading after it, or a classified failure.
    */
   gitCommit: (workspacePath: string, message: string, amend: boolean) => Promise<GitCommitResult>
+  /**
+   * Send the current branch's commits to its remote.
+   * @param workspacePath - the workspace the reading came from.
+   * @param setUpstream - publish a branch that has no upstream instead of refusing it.
+   * @returns the push and the reading after it, or a classified failure.
+   */
+  gitPush: (workspacePath: string, setUpstream: boolean) => Promise<GitPushResult>
+  /**
+   * Ask the deployment's model to write a commit message for what is staged.
+   * @param workspacePath - the workspace the reading came from.
+   * @param amend - draft for an amend, which describes the previous commit's content too.
+   * @param signal - cancellation for the readings and the model call.
+   * @returns the drafted message, or a classified failure.
+   */
+  gitCommitMessage: (
+    workspacePath: string, amend: boolean, signal?: AbortSignal,
+  ) => Promise<GitCommitMessageResult>
   /**
    * Allocate a panel terminal.
    * @param workspacePath - the directory to start in.

@@ -24,6 +24,9 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: link:../../deepseek-harness/packages/core/agent
         version: link:../../deepseek-harness/packages/core/agent
+      '@deepseek-ai/dsh-agent-default-model':
+        specifier: link:../../deepseek-harness/packages/core/agent-default-model
+        version: link:../../deepseek-harness/packages/core/agent-default-model
       '@deepseek-ai/dsh-api-remotes':
         specifier: link:../../deepseek-harness/packages/api/remotes
         version: link:../../deepseek-harness/packages/api/remotes
@@ -63,6 +66,9 @@ importers:
       '@deepseek-ai/dsh-jobs':
         specifier: link:../../deepseek-harness/packages/jobs/jobs
         version: link:../../deepseek-harness/packages/jobs/jobs
+      '@deepseek-ai/dsh-llm':
+        specifier: link:../../deepseek-harness/packages/llm/llm
+        version: link:../../deepseek-harness/packages/llm/llm
       '@deepseek-ai/dsh-session':
         specifier: link:../../deepseek-harness/packages/core/session
         version: link:../../deepseek-harness/packages/core/session

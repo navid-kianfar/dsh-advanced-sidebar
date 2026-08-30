@@ -221,6 +221,10 @@ function surface(ctx: ClientContext): void {
       gitUnstage: (workspacePath, paths) => remote.gitUnstage({ workspacePath, paths }).then(unwrap),
       gitCommit: (workspacePath, message, amend) =>
         remote.gitCommit({ workspacePath, message, amend }).then(unwrap),
+      gitPush: (workspacePath, setUpstream) =>
+        remote.gitPush({ workspacePath, setUpstream }).then(unwrap),
+      gitCommitMessage: (workspacePath, amend, signal) =>
+        remote.gitCommitMessage({ workspacePath, amend }, signal).then(unwrap),
       terminalOpen: (workspacePath, cols, rows) => remote.terminalOpen({ workspacePath, cols, rows }).then(unwrap),
       terminalRead: (terminalId, fromOffset) => remote.terminalRead({ terminalId, fromOffset }).then(unwrap),
       terminalWrite: (terminalId, data) => remote.terminalWrite({ terminalId, data }).then(unwrap),

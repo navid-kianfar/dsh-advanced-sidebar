@@ -10,13 +10,15 @@
 
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { isStaged, isUnstaged, parsePorcelainV2 } from './porcelain.ts'
 import { resolveInside, resolveWorkspace, type PathOutcome } from './paths.ts'
 import { CommandUnavailableError, resolveCommand, runCommand, type CommandOutcome } from './run.ts'
 import type {
-  AdvancedSidebarSettings, CapabilityState, GitCommitRequest, GitCommitResult, GitDiffRequest,
-  GitDiffResult, GitFailure, GitFailureCode, GitFileChange, GitStageRequest, GitStageResult,
-  GitStatusRequest, GitStatusResult, GitStatusSuccess, GitWriteCapability,
+  AdvancedSidebarSettings, CapabilityState, GitCommitMessageRequest, GitCommitMessageResult,
+  GitCommitRequest, GitCommitResult, GitDiffRequest, GitDiffResult, GitFailure, GitFailureCode,
+  GitFileChange, GitPushRequest, GitPushResult, GitStageRequest, GitStageResult, GitStatusRequest,
+  GitStatusResult, GitStatusSuccess, GitWriteCapability,
 } from './types.ts'
 
 /**
@@ -29,6 +31,25 @@ const NUL_ARGS = ['-z'] as const
 
 /** Exit code of the synthetic outcome produced when the `git` binary does not resolve. */
 const MISSING_BINARY_EXIT = 127
+
+/** The remote a branch with no upstream is published to when nothing else names one. */
+const DEFAULT_REMOTE = 'origin'
+
+/**
+ * What the model is told a commit message is, when the settings section supplies no prompt of its
+ * own.
+ *
+ * It states the format because a model asked for "a commit message" writes a paragraph as readily
+ * as a subject line, and the panel puts the answer straight into the box a person then edits.
+ */
+const DEFAULT_COMMIT_PROMPT = [
+  'Write a git commit message for the supplied diff.',
+  'Answer with the message alone: no preamble, no explanation, no code fences, no quotes.',
+  'First line: imperative mood, under 72 characters, no trailing period.',
+  'Then, only if the change needs it, a blank line and a short body explaining WHY rather than'
+  + ' restating the diff. Wrap the body at 72 columns.',
+  'Describe what the diff actually does. Do not invent a motive it does not show.',
+].join('\n')
 
 /** Compose one classified failure. */
 function fail(code: GitFailureCode, message: string): GitFailure {
@@ -57,6 +78,21 @@ function classify(outcome: CommandOutcome): GitFailure {
   const message = stderrLine(outcome)
   if (/not a git repository/iu.test(message)) return fail('not-a-repository', message)
   return fail('git-failed', message)
+}
+
+/**
+ * Take a model's answer down to the message itself.
+ *
+ * A model asked for plain text still fences it often enough that the panel would otherwise put
+ * ```` ``` ```` into a commit; the wrapper is removed only when it wraps the WHOLE answer, so a
+ * message that legitimately quotes a fenced block keeps it.
+ * @param text - what the model streamed.
+ * @returns the message, trimmed.
+ */
+export function stripFence(text: string): string {
+  const trimmed = text.trim()
+  const fenced = /^```[^\n]*\n([\s\S]*)\n```$/u.exec(trimmed)
+  return (fenced?.[1] ?? trimmed).trim()
 }
 
 /** A resolved repository: where git says its root is, and where the request pointed. */
@@ -282,6 +318,188 @@ export class GitReader {
   }
 
   /**
+   * Send the current branch's commits to its remote.
+   *
+   * Only the current branch, and only to its own upstream: a refspec assembled from browser text
+   * would let one button push anything anywhere, and `git push` with no arguments already means
+   * exactly what the panel offers. A branch with no upstream is published only when the caller asks
+   * for it, because choosing a remote is a decision rather than a default.
+   * @param request - the workspace, and whether an unpublished branch may be published.
+   * @param signal - cancellation; the network wait runs under `gitPushTimeoutMs`.
+   * @returns the push, the reading after it, or a classified failure.
+   */
+  async push(request: GitPushRequest, signal?: AbortSignal): Promise<GitPushResult> {
+    const settings = this.source()
+    if (!settings.allowGitPush) {
+      return fail('disabled', 'pushing is switched off in the advanced-sidebar settings')
+    }
+    const prepared = await this.prepare(request.workspacePath, signal)
+    if ('failure' in prepared) return prepared.failure
+    const { repository } = prepared
+
+    const before = await this.status({ workspacePath: request.workspacePath }, signal)
+    if (!before.ok) return before
+    if (before.detached || before.branch === undefined) {
+      return fail('detached-head', 'HEAD names a commit rather than a branch, so there is nothing to push')
+    }
+    const branch = before.branch
+    const upstream = before.upstream
+    if (upstream === undefined && !request.setUpstream) {
+      return fail(
+        'no-upstream',
+        `${branch} has no upstream; publish it to a remote first, or use Publish to record one`,
+      )
+    }
+    // The remote half of `origin/main`, so a branch tracking something other than `origin` is
+    // published to the remote it already follows rather than to a guess.
+    const remote = upstream === undefined
+      ? await this.defaultRemote(repository.root, signal)
+      : (upstream.split('/')[0] ?? DEFAULT_REMOTE)
+    if (remote === undefined) {
+      return fail('no-upstream', 'this repository has no remote to push to')
+    }
+
+    const outcome = await this.git(
+      repository.root,
+      upstream === undefined
+        // `--` is not accepted here, so the branch is passed as a bare argument; it comes from
+        // git's own status reading rather than from the browser, and is never caller text.
+        ? ['push', '--set-upstream', remote, branch]
+        : ['push'],
+      signal,
+      undefined,
+      settings.gitPushTimeoutMs,
+    )
+    if (outcome.exitCode !== 0) return classify(outcome)
+
+    const status = await this.status({ workspacePath: request.workspacePath }, signal)
+    if (!status.ok) return status
+    return {
+      ok: true,
+      branch,
+      remote,
+      published: upstream === undefined,
+      status,
+      // git reports a push on stderr even when it succeeds; that text is the receipt.
+      notes: `${outcome.stdout}\n${outcome.stderr}`.trim(),
+    }
+  }
+
+  /**
+   * Ask the deployment's own model to write a commit message for what is staged.
+   *
+   * The model sees the staged patch and nothing else — not the working tree, not the repository's
+   * history, not the session. It is the same model the composer is set to, so this needs no second
+   * credential and no second provider; a Host with no model reports the verb unavailable instead.
+   * @param request - the workspace, and whether the message is for an amend.
+   * @param signal - cancellation for the readings and the model call.
+   * @returns the drafted message, or a classified failure.
+   */
+  async draftCommitMessage(
+    request: GitCommitMessageRequest, signal?: AbortSignal,
+  ): Promise<GitCommitMessageResult> {
+    const settings = this.source()
+    if (!settings.allowGitCommit || !settings.allowCommitMessageDraft) {
+      return fail('disabled', 'the drafted commit message is switched off in the advanced-sidebar settings')
+    }
+    const llm = this.ctx.get('llm')
+    const models = this.ctx.get('agentDefaultModel')
+    if (llm === undefined || models === undefined) {
+      return fail('no-model', 'no model is configured for this deployment')
+    }
+    const prepared = await this.prepare(request.workspacePath, signal)
+    if ('failure' in prepared) return prepared.failure
+    const { repository } = prepared
+
+    const patch = await this.stagedPatch(repository.root, request.amend, signal)
+    if ('failure' in patch) return patch.failure
+    if (patch.text.trim() === '') {
+      return fail('nothing-staged', 'nothing is staged, so there is nothing to describe')
+    }
+
+    const selection = models.currentSelection()
+    try {
+      let drafted = ''
+      for await (const chunk of llm.stream({
+        provider: selection.provider,
+        model: selection.model,
+        ...selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort },
+        system: settings.commitMessagePrompt.trim() === ''
+          ? DEFAULT_COMMIT_PROMPT
+          : settings.commitMessagePrompt,
+        messages: [createUserMessage({
+          content: [{ type: 'text', text: patch.text }],
+          source: { kind: 'plugin', plugin: 'dsh-advanced-sidebar' },
+        })],
+        ...signal === undefined ? {} : { signal },
+      })) {
+        if (chunk.type === 'text-delta') drafted += chunk.text
+      }
+      const message = stripFence(drafted)
+      if (message === '') return fail('llm-failed', 'the model returned no message')
+      return { ok: true, message, model: `${selection.provider}/${selection.model}`, truncated: patch.truncated }
+    } catch (error) {
+      if (signal?.aborted === true) return fail('cancelled', 'the request was abandoned')
+      return fail('llm-failed', error instanceof Error ? error.message : 'the model request failed')
+    }
+  }
+
+  /**
+   * The patch a drafted message describes, bounded so a large change cannot become a large request.
+   * @param root - absolute repository root.
+   * @param amend - describe the previous commit's content as well as the index.
+   * @param signal - cancellation for the invocations.
+   * @returns the patch and whether it was cut, or the failure to return.
+   */
+  private async stagedPatch(
+    root: string, amend: boolean, signal?: AbortSignal,
+  ): Promise<{ text: string; truncated: boolean } | { failure: GitFailure }> {
+    const settings = this.source()
+    // An amend replaces the previous commit, so what it will contain is the index measured against
+    // that commit's PARENT. A root commit has no parent, and its own index is the whole answer.
+    const base = amend && await this.hasParent(root, signal) ? ['HEAD~1'] : []
+    const stat = await this.git(root, ['diff', '--cached', '--stat', ...base], signal)
+    if (stat.exitCode !== 0) return { failure: classify(stat) }
+    const cap = settings.commitMessageMaxBytes
+    const patch = await this.git(root, ['diff', '--cached', '--no-color', ...base], signal, cap)
+    if (patch.exitCode !== 0) return { failure: classify(patch) }
+    const truncated = patch.stdoutLossy || patch.stdout.length >= cap
+    return {
+      text: [
+        stat.stdout.trim(),
+        '',
+        truncated ? patch.stdout.slice(0, cap) : patch.stdout,
+        truncated ? '\n[the patch was truncated here]' : '',
+      ].join('\n').trim(),
+      truncated,
+    }
+  }
+
+  /**
+   * Whether HEAD has a parent commit.
+   * @param cwd - absolute repository root.
+   * @param signal - cancellation for the invocation.
+   * @returns true when `HEAD~1` resolves.
+   */
+  private async hasParent(cwd: string, signal?: AbortSignal): Promise<boolean> {
+    const outcome = await this.git(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD~1'], signal)
+    return outcome.exitCode === 0
+  }
+
+  /**
+   * The remote an unpublished branch would be published to.
+   * @param cwd - absolute repository root.
+   * @param signal - cancellation for the invocation.
+   * @returns `origin` when it exists, else the first remote, else undefined.
+   */
+  private async defaultRemote(cwd: string, signal?: AbortSignal): Promise<string | undefined> {
+    const outcome = await this.git(cwd, ['remote'], signal)
+    if (outcome.exitCode !== 0) return undefined
+    const remotes = outcome.stdout.split('\n').map(line => line.trim()).filter(line => line !== '')
+    return remotes.includes(DEFAULT_REMOTE) ? DEFAULT_REMOTE : remotes[0]
+  }
+
+  /**
    * Run one index write over contained paths, then re-read the repository.
    * @param request - the workspace and the paths.
    * @param signal - cancellation for both invocations.
@@ -380,8 +598,20 @@ export class GitReader {
     const canStage = settings.allowGitStaging
     // Commit without staging would be a button with no way to fill the index it needs.
     const canCommit = canStage && settings.allowGitCommit
+    // A drafted message is a message for a commit, so it follows the commit verb; the model is a
+    // second requirement, and one this Host may simply not have.
+    const canDraftMessage = canCommit
+      && settings.allowCommitMessageDraft
+      && this.ctx.get('llm') !== undefined
+      && this.ctx.get('agentDefaultModel') !== undefined
     const author = canCommit ? await this.author(cwd, signal) : undefined
-    return { canStage, canCommit, ...author === undefined ? {} : { author } }
+    return {
+      canStage,
+      canCommit,
+      canPush: settings.allowGitPush,
+      canDraftMessage,
+      ...author === undefined ? {} : { author },
+    }
   }
 
   /**

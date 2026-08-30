@@ -86,6 +86,19 @@ export interface AdvancedSidebarSettings {
   readonly allowGitStaging: boolean
   /** Offer Commit in the Changes panel; requires {@link allowGitStaging}. */
   readonly allowGitCommit: boolean
+  /** Offer Push in the Changes panel. */
+  readonly allowGitPush: boolean
+  /**
+   * Wall-clock bound on `git push`, separate because it is the one invocation that waits on a
+   * network and on a remote's own processing.
+   */
+  readonly gitPushTimeoutMs: number
+  /** Offer the model-written commit message in the Changes panel; requires {@link allowGitCommit}. */
+  readonly allowCommitMessageDraft: boolean
+  /** System prompt for the drafted commit message; empty uses this plugin's own. */
+  readonly commitMessagePrompt: string
+  /** Largest staged patch, in bytes, sent to the model when drafting a commit message. */
+  readonly commitMessageMaxBytes: number
   /** Shell for the panel terminal; empty resolves `$SHELL`, then the platform default. */
   readonly terminalShell: string
   /** Retained terminal output in characters; the head is dropped past it. */
@@ -273,6 +286,14 @@ export type GitFailureCode =
   | 'empty-message'
   /** git has no `user.name`/`user.email`, so it has no author to record. */
   | 'no-identity'
+  /** The branch has no upstream, so `git push` has no default destination. */
+  | 'no-upstream'
+  /** HEAD names no branch, so there is nothing to push. */
+  | 'detached-head'
+  /** No model is configured on this Host, so no message can be drafted. */
+  | 'no-model'
+  /** The model request failed; the message carries what it said. */
+  | 'llm-failed'
 
 /** Whether the repository can be written from the panel, and whether it could commit right now. */
 export interface GitWriteCapability {
@@ -280,6 +301,10 @@ export interface GitWriteCapability {
   readonly canStage: boolean
   /** Committing is offered. */
   readonly canCommit: boolean
+  /** Pushing is offered. */
+  readonly canPush: boolean
+  /** The model-written commit message is offered, and a model is mounted to write it. */
+  readonly canDraftMessage: boolean
   /**
    * Author identity `git commit` would use, as `Name <email>`.
    *
@@ -385,6 +410,60 @@ export interface GitCommitSuccess {
 
 /** Commit outcome. */
 export type GitCommitResult = GitCommitSuccess | GitFailure
+
+/** Send the current branch's commits to its remote. */
+export interface GitPushRequest {
+  /** Absolute Host workspace directory. */
+  readonly workspacePath: string
+  /**
+   * Publish a branch that has no upstream, recording the remote it was pushed to as its upstream.
+   * False refuses such a branch instead, because choosing a remote is a decision, not a default.
+   */
+  readonly setUpstream: boolean
+}
+
+/** A completed push, with the reading that follows it. */
+export interface GitPushSuccess {
+  readonly ok: true
+  /** Branch that was pushed. */
+  readonly branch: string
+  /** Remote it went to. */
+  readonly remote: string
+  /** True when this push is what gave the branch its upstream. */
+  readonly published: boolean
+  /** The repository state after the push; its `ahead` is what proves the push landed. */
+  readonly status: GitStatusSuccess
+  /** What git printed while succeeding — the ref update lines, and any remote advice. */
+  readonly notes: string
+}
+
+/** Push outcome. */
+export type GitPushResult = GitPushSuccess | GitFailure
+
+/** Ask a model to write a commit message for what is staged. */
+export interface GitCommitMessageRequest {
+  /** Absolute Host workspace directory. */
+  readonly workspacePath: string
+  /**
+   * Draft for an amend, which describes the previous commit's content as well as the index. False
+   * describes the index alone.
+   */
+  readonly amend: boolean
+}
+
+/** A drafted commit message. */
+export interface GitCommitMessageSuccess {
+  readonly ok: true
+  /** The message, ready to be edited before it is recorded. */
+  readonly message: string
+  /** Provider route that wrote it, so the panel can say which model answered. */
+  readonly model: string
+  /** True when the patch was cut at `commitMessageMaxBytes` before the model saw it. */
+  readonly truncated: boolean
+}
+
+/** Draft outcome. */
+export type GitCommitMessageResult = GitCommitMessageSuccess | GitFailure
 
 /* --------------------------------------------------------------------------------------------- */
 /* Terminal                                                                                        */

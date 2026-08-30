@@ -76,6 +76,11 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_describe_result$schema = z.
   'gitCommitTimeoutMs': z.number().readonly(),
   'allowGitStaging': z.boolean().readonly(),
   'allowGitCommit': z.boolean().readonly(),
+  'allowGitPush': z.boolean().readonly(),
+  'gitPushTimeoutMs': z.number().readonly(),
+  'allowCommitMessageDraft': z.boolean().readonly(),
+  'commitMessagePrompt': z.string().readonly(),
+  'commitMessageMaxBytes': z.number().readonly(),
   'terminalShell': z.string().readonly(),
   'terminalScrollback': z.number().readonly(),
   'maxTerminals': z.number().readonly(),
@@ -119,7 +124,7 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitDiff_result$schema = z.u
   'truncated': z.boolean().readonly(),
 }), z.object({
   'ok': z.literal(false).readonly(),
-  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity")]).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity"), z.literal("no-upstream"), z.literal("detached-head"), z.literal("no-model"), z.literal("llm-failed")]).readonly(),
   'message': z.string().readonly(),
 })])
 const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStatus_parameter_0$schema = z.object({
@@ -130,6 +135,8 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStatus_result$schema = z
   'write': z.object({
   'canStage': z.boolean().readonly(),
   'canCommit': z.boolean().readonly(),
+  'canPush': z.boolean().readonly(),
+  'canDraftMessage': z.boolean().readonly(),
   'author': z.string().readonly().optional(),
 }).readonly(),
   'repositoryRoot': z.string().readonly(),
@@ -175,7 +182,7 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStatus_result$schema = z
   'readAt': z.number().readonly(),
 }), z.object({
   'ok': z.literal(false).readonly(),
-  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity")]).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity"), z.literal("no-upstream"), z.literal("detached-head"), z.literal("no-model"), z.literal("llm-failed")]).readonly(),
   'message': z.string().readonly(),
 })])
 const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStage_parameter_0$schema = z.object({
@@ -189,6 +196,8 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStage_result$schema = z.
   'write': z.object({
   'canStage': z.boolean().readonly(),
   'canCommit': z.boolean().readonly(),
+  'canPush': z.boolean().readonly(),
+  'canDraftMessage': z.boolean().readonly(),
   'author': z.string().readonly().optional(),
 }).readonly(),
   'repositoryRoot': z.string().readonly(),
@@ -235,7 +244,7 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitStage_result$schema = z.
 }).readonly(),
 }), z.object({
   'ok': z.literal(false).readonly(),
-  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity")]).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity"), z.literal("no-upstream"), z.literal("detached-head"), z.literal("no-model"), z.literal("llm-failed")]).readonly(),
   'message': z.string().readonly(),
 })])
 const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitUnstage_parameter_0$schema = z.object({
@@ -249,6 +258,8 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitUnstage_result$schema = 
   'write': z.object({
   'canStage': z.boolean().readonly(),
   'canCommit': z.boolean().readonly(),
+  'canPush': z.boolean().readonly(),
+  'canDraftMessage': z.boolean().readonly(),
   'author': z.string().readonly().optional(),
 }).readonly(),
   'repositoryRoot': z.string().readonly(),
@@ -295,7 +306,7 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitUnstage_result$schema = 
 }).readonly(),
 }), z.object({
   'ok': z.literal(false).readonly(),
-  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity")]).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity"), z.literal("no-upstream"), z.literal("detached-head"), z.literal("no-model"), z.literal("llm-failed")]).readonly(),
   'message': z.string().readonly(),
 })])
 const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitCommit_parameter_0$schema = z.object({
@@ -312,6 +323,8 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitCommit_result$schema = z
   'write': z.object({
   'canStage': z.boolean().readonly(),
   'canCommit': z.boolean().readonly(),
+  'canPush': z.boolean().readonly(),
+  'canDraftMessage': z.boolean().readonly(),
   'author': z.string().readonly().optional(),
 }).readonly(),
   'repositoryRoot': z.string().readonly(),
@@ -359,7 +372,87 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitCommit_result$schema = z
   'notes': z.string().readonly(),
 }), z.object({
   'ok': z.literal(false).readonly(),
-  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity")]).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity"), z.literal("no-upstream"), z.literal("detached-head"), z.literal("no-model"), z.literal("llm-failed")]).readonly(),
+  'message': z.string().readonly(),
+})])
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitPush_parameter_0$schema = z.object({
+  'workspacePath': z.string().readonly(),
+  'setUpstream': z.boolean().readonly(),
+})
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitPush_result$schema = z.union([z.object({
+  'ok': z.literal(true).readonly(),
+  'branch': z.string().readonly(),
+  'remote': z.string().readonly(),
+  'published': z.boolean().readonly(),
+  'status': z.object({
+  'ok': z.literal(true).readonly(),
+  'write': z.object({
+  'canStage': z.boolean().readonly(),
+  'canCommit': z.boolean().readonly(),
+  'canPush': z.boolean().readonly(),
+  'canDraftMessage': z.boolean().readonly(),
+  'author': z.string().readonly().optional(),
+}).readonly(),
+  'repositoryRoot': z.string().readonly(),
+  'prefix': z.string().readonly(),
+  'branch': z.string().readonly().optional(),
+  'upstream': z.string().readonly().optional(),
+  'ahead': z.number().readonly(),
+  'behind': z.number().readonly(),
+  'detached': z.boolean().readonly(),
+  'staged': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'unstaged': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'untracked': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'conflicted': z.array(z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().readonly().optional(),
+  'index': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'worktree': z.union([z.literal("unmodified"), z.literal("added"), z.literal("modified"), z.literal("deleted"), z.literal("renamed"), z.literal("copied"), z.literal("typechange"), z.literal("untracked"), z.literal("ignored"), z.literal("conflicted")]).readonly(),
+  'untracked': z.boolean().readonly(),
+  'conflicted': z.boolean().readonly(),
+})).readonly(),
+  'truncated': z.boolean().readonly(),
+  'readAt': z.number().readonly(),
+}).readonly(),
+  'notes': z.string().readonly(),
+}), z.object({
+  'ok': z.literal(false).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity"), z.literal("no-upstream"), z.literal("detached-head"), z.literal("no-model"), z.literal("llm-failed")]).readonly(),
+  'message': z.string().readonly(),
+})])
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitCommitMessage_parameter_0$schema = z.object({
+  'workspacePath': z.string().readonly(),
+  'amend': z.boolean().readonly(),
+})
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_gitCommitMessage_result$schema = z.union([z.object({
+  'ok': z.literal(true).readonly(),
+  'message': z.string().readonly(),
+  'model': z.string().readonly(),
+  'truncated': z.boolean().readonly(),
+}), z.object({
+  'ok': z.literal(false).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("no-git"), z.literal("not-a-repository"), z.literal("git-failed"), z.literal("timeout"), z.literal("cancelled"), z.literal("path-denied"), z.literal("disabled"), z.literal("nothing-staged"), z.literal("empty-message"), z.literal("no-identity"), z.literal("no-upstream"), z.literal("detached-head"), z.literal("no-model"), z.literal("llm-failed")]).readonly(),
   'message': z.string().readonly(),
 })])
 const _achasoft_dsh_advanced_sidebar_advancedSidebar_listEntries_parameter_0$schema = z.object({
@@ -768,6 +861,58 @@ export const TYPERT = {
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitCommit_result$schema,
       },
       sourceLocation: {"file":"src/host/index.ts","line":307,"column":3},
+    },
+    {
+      id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/gitPush',
+      service: 'advancedSidebar',
+      namespace: 'advancedSidebar',
+      method: 'gitPush',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '../src/host/types.ts#GitPushRequest',
+            schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitPush_parameter_0$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '../src/host/types.ts#GitPushResult',
+        schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitPush_result$schema,
+      },
+      sourceLocation: {"file":"src/host/index.ts","line":320,"column":3},
+    },
+    {
+      id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/gitCommitMessage',
+      service: 'advancedSidebar',
+      namespace: 'advancedSidebar',
+      method: 'gitCommitMessage',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '../src/host/types.ts#GitCommitMessageRequest',
+            schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitCommitMessage_parameter_0$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '../src/host/types.ts#GitCommitMessageResult',
+        schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_gitCommitMessage_result$schema,
+      },
+      sourceLocation: {"file":"src/host/index.ts","line":333,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/listEntries',

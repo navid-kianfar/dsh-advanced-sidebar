@@ -16,10 +16,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14, IconCloseOutline16,
-  IconCopyOutline16, IconLoadingOutline16, IconRefreshOutline14,
+  IconCopyOutline16, IconLoadingOutline16, IconRefreshOutline14, IconSparkle16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GitDiffResult, GitFileChange, GitStatusResult, GitStatusSuccess } from '../../host/types.ts'
 import type { Translate } from '../contract.ts'
+import { PushGlyph } from '../Glyphs.tsx'
 import { Alert, Badge, Button, CheckboxRow, Textarea } from '../ui/index.ts'
 import { cx } from '../cx.ts'
 import { PathText, transportMessage, useLatest, type PanelProps } from './shared.tsx'
@@ -130,12 +131,19 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
   useEffect(() => () => { window.clearTimeout(copiedTimer.current) }, [])
 
   const directory = target.directory
-  const { gitStatus, gitDiff, gitStage, gitUnstage, gitCommit, copy, notify } = face
+  const { gitStatus, gitDiff, gitStage, gitUnstage, gitCommit, gitPush, gitCommitMessage } = face
+  const { copy, notify } = face
   const latest = useLatest(t)
   const [message, setMessage] = useState('')
   const [amend, setAmend] = useState(false)
   /** The write in flight; one at a time, because two overlapping index writes would race. */
   const [writing, setWriting] = useState(false)
+  /** The model call in flight, and the handle that abandons it. */
+  const [drafting, setDrafting] = useState(false)
+  const draft = useRef<AbortController | undefined>(undefined)
+  // A draft outlives neither the panel nor a session switch: the model call would settle into a
+  // box describing a different repository.
+  useEffect(() => () => { draft.current?.abort() }, [])
 
   useEffect(() => {
     if (directory === undefined) return
@@ -190,6 +198,16 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
   const total = groups.reduce((sum, [, rows]) => sum + rows.length, 0)
   const write = status?.ok === true ? status.write : undefined
   const stagedCount = status?.ok === true ? status.staged.length : 0
+  const ahead = status?.ok === true ? status.ahead : 0
+  const published = status?.ok === true && status.upstream !== undefined
+  // Nothing to send is a disabled button rather than a request that git would answer with
+  // "Everything up-to-date"; publishing a new branch has something to do at zero commits ahead.
+  const pushDisabled = writing || (published && ahead === 0)
+  const pushTitle = !published
+    ? t('changes.publish.hint')
+    : ahead === 0
+      ? t('changes.push.upToDate')
+      : t('changes.push.hint', { n: ahead, upstream: status?.ok === true ? status.upstream ?? '' : '' })
 
   /**
    * Run one index write and adopt the reading it returns.
@@ -223,6 +241,53 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
     if (directory === undefined || paths.length === 0) return
     commitWrite(() => gitUnstage(directory, paths))
   }, [commitWrite, directory, gitUnstage])
+
+  const push = useCallback((setUpstream: boolean) => {
+    if (directory === undefined) return
+    setWriting(true)
+    gitPush(directory, setUpstream).then(
+      (result) => {
+        setWriting(false)
+        if (!result.ok) { notify('error', result.message); return }
+        setStatus(result.status)
+        notify('info', latest.current(
+          result.published ? 'changes.push.published' : 'changes.push.done',
+          { branch: result.branch, remote: result.remote },
+        ))
+        // git narrates a push on stderr even when it succeeds — the ref update, and any advice the
+        // remote attached to it. That text is the receipt, so it is shown rather than dropped.
+        if (result.notes !== '') notify('info', result.notes)
+      },
+      (reason: unknown) => {
+        setWriting(false)
+        notify('error', transportMessage(reason, latest.current))
+      },
+    )
+  }, [directory, gitPush, notify, latest])
+
+  const suggest = useCallback(() => {
+    if (directory === undefined) return
+    draft.current?.abort()
+    const controller = new AbortController()
+    draft.current = controller
+    setDrafting(true)
+    gitCommitMessage(directory, amend, controller.signal).then(
+      (result) => {
+        if (controller.signal.aborted) return
+        setDrafting(false)
+        if (!result.ok) { notify('error', result.message); return }
+        // Written into the box rather than committed: the draft is a starting point a person edits,
+        // which is the whole difference between this and a model that commits on its own.
+        setMessage(result.message)
+        if (result.truncated) notify('info', latest.current('changes.commit.suggest.truncated'))
+      },
+      (reason: unknown) => {
+        if (controller.signal.aborted) return
+        setDrafting(false)
+        notify('error', transportMessage(reason, latest.current))
+      },
+    )
+  }, [amend, directory, gitCommitMessage, notify, latest])
 
   const record = useCallback(() => {
     if (directory === undefined) return
@@ -265,6 +330,21 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
           </>
         )}
         {status?.ok !== true && <span className={css.spacer} />}
+        {status?.ok === true && write?.canPush === true && (
+          <Button
+            size="sm"
+            variant={status.ahead > 0 ? 'secondary' : 'ghost'}
+            icon={<PushGlyph size={14} />}
+            // A branch with no upstream is published rather than pushed, and says so: the two are
+            // the same button because they are the same intent, but not the same act.
+            aria-label={status.upstream === undefined ? t('changes.publish') : t('changes.push')}
+            title={pushTitle}
+            disabled={pushDisabled}
+            onClick={() => { push(status.upstream === undefined) }}
+          >
+            {status.upstream === undefined ? t('changes.publish') : t('changes.push')}
+          </Button>
+        )}
         <Button
           size="icon"
           aria-label={t('panel.refresh')}
@@ -300,11 +380,24 @@ export function ChangesPanel({ target, t, face }: PanelProps) {
               {t('changes.commit.amend')}
             </CheckboxRow>
             <span className={css.spacer} />
+            {write.canDraftMessage && (
+              <Button
+                size="sm"
+                icon={drafting ? <IconLoadingOutline16 /> : <IconSparkle16 />}
+                aria-label={t('changes.commit.suggest')}
+                title={t('changes.commit.suggest.hint')}
+                // The model is shown the staged patch, so there is nothing to describe without one.
+                disabled={writing || drafting || (stagedCount === 0 && !amend)}
+                onClick={suggest}
+              >
+                {t('changes.commit.suggest')}
+              </Button>
+            )}
             <Button
               variant="default"
               size="sm"
               // Amending has something to record with an empty index; an ordinary commit does not.
-              disabled={writing || message.trim() === '' || (stagedCount === 0 && !amend)}
+              disabled={writing || drafting || message.trim() === '' || (stagedCount === 0 && !amend)}
               onClick={record}
             >
               {writing ? <IconLoadingOutline16 /> : null}

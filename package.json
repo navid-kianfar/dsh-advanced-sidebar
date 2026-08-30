@@ -60,8 +60,10 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
     "@deepseek-ai/dsh-agent": "*",
+    "@deepseek-ai/dsh-agent-default-model": "*",
     "@deepseek-ai/dsh-fs": "*",
     "@deepseek-ai/dsh-jobs": "*",
+    "@deepseek-ai/dsh-llm": "*",
     "@deepseek-ai/dsh-session": "*",
     "@deepseek-ai/dsh-session-persistence": "*",
     "@deepseek-ai/dsh-settings": "*",
@@ -78,6 +80,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "link:../../deepseek-harness/vendor/cordis",
     "@deepseek-ai/dsh-agent": "link:../../deepseek-harness/packages/core/agent",
+    "@deepseek-ai/dsh-agent-default-model": "link:../../deepseek-harness/packages/core/agent-default-model",
     "@deepseek-ai/dsh-api-remotes": "link:../../deepseek-harness/packages/api/remotes",
     "@deepseek-ai/dsh-client-locale": "link:../../deepseek-harness/packages/client/locale",
     "@deepseek-ai/dsh-client-runtime": "link:../../deepseek-harness/packages/client/runtime",
@@ -91,6 +94,7 @@
     "@deepseek-ai/dsh-client-ui-theme": "link:../../deepseek-harness/packages/client/ui-theme",
     "@deepseek-ai/dsh-fs": "link:../../deepseek-harness/packages/fs/fs",
     "@deepseek-ai/dsh-jobs": "link:../../deepseek-harness/packages/jobs/jobs",
+    "@deepseek-ai/dsh-llm": "link:../../deepseek-harness/packages/llm/llm",
     "@deepseek-ai/dsh-session": "link:../../deepseek-harness/packages/core/session",
     "@deepseek-ai/dsh-session-persistence": "link:../../deepseek-harness/packages/session/session-persistence",
     "@deepseek-ai/dsh-settings": "link:../../deepseek-harness/packages/settings/settings",

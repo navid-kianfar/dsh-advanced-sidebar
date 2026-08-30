@@ -21,8 +21,12 @@ import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-sett
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 // Type-only: the Context merges for the optional capabilities this service reads through `ctx.get`.
 import type {} from '@deepseek-ai/dsh-agent'
+// Type-only: the ctx.agentDefaultModel Context merge, read when drafting a commit message.
+import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-jobs'
+// Type-only: the ctx.llm Context merge.
+import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-subprocess'
@@ -36,7 +40,8 @@ import { PanelTerminals } from './terminals.ts'
 import { TaskController } from './tasks.ts'
 import type {
   AdvancedSidebarSettings, AdvancedSidebarView, DeleteSessionRequest, DeleteSessionResult,
-  GitCommitRequest, GitCommitResult, GitDiffRequest, GitDiffResult, GitStageRequest,
+  GitCommitMessageRequest, GitCommitMessageResult, GitCommitRequest, GitCommitResult,
+  GitDiffRequest, GitDiffResult, GitPushRequest, GitPushResult, GitStageRequest,
   GitStageResult, GitStatusRequest, GitStatusResult, ListEntriesRequest,
   ListEntriesResult, OpenInRequest, OpenInResult, PreviewListRequest, PreviewListResult,
   PreviewLogsRequest, PreviewLogsResult, PreviewStartRequest, PreviewStartResult,
@@ -160,6 +165,11 @@ export class AdvancedSidebarService extends TypertRemoteService {
     gitCommitTimeoutMs: z.number().step(1).min(1_000).max(1_800_000).required(),
     allowGitStaging: z.boolean().required(),
     allowGitCommit: z.boolean().required(),
+    allowGitPush: z.boolean().required(),
+    gitPushTimeoutMs: z.number().step(1).min(1_000).max(1_800_000).required(),
+    allowCommitMessageDraft: z.boolean().required(),
+    commitMessagePrompt: z.string(),
+    commitMessageMaxBytes: z.number().step(1).min(1_024).max(4 * 1_024 * 1_024).required(),
     terminalShell: z.string(),
     terminalScrollback: z.number().step(1).min(1_024).max(4 * 1_024 * 1_024).required(),
     maxTerminals: z.number().step(1).min(1).max(32).required(),
@@ -305,6 +315,30 @@ export class AdvancedSidebarService extends TypertRemoteService {
   @Remote('gitCommit')
   gitCommit(request: GitCommitRequest, signal: AbortSignal): Promise<GitCommitResult> {
     return this.git.commit(request, signal)
+  }
+
+  /**
+   * Send the current branch's commits to its remote.
+   * @param request - the workspace, and whether an unpublished branch may be published.
+   * @param signal - gateway-supplied cancellation; the network wait runs under `gitPushTimeoutMs`.
+   * @returns the push and the reading after it, or a classified failure.
+   */
+  @Remote('gitPush')
+  gitPush(request: GitPushRequest, signal: AbortSignal): Promise<GitPushResult> {
+    return this.git.push(request, signal)
+  }
+
+  /**
+   * Ask the deployment's own model to write a commit message for what is staged.
+   * @param request - the workspace, and whether the message is for an amend.
+   * @param signal - gateway-supplied cancellation for the readings and the model call.
+   * @returns the drafted message, or a classified failure.
+   */
+  @Remote('gitCommitMessage')
+  gitCommitMessage(
+    request: GitCommitMessageRequest, signal: AbortSignal,
+  ): Promise<GitCommitMessageResult> {
+    return this.git.draftCommitMessage(request, signal)
   }
 
   /**

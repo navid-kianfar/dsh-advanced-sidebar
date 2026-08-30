@@ -4,7 +4,7 @@ Advanced sidebar operations for the DeepSeek Harness Web Client: **Changes**, **
 
 Everything the browser can already do goes through the Web Client's own capabilities. Everything it structurally cannot — running `git`, allocating a pseudo-terminal, launching an editor, stopping a background task, removing a session log — goes through this plugin's own Typert Remote namespace, `ctx.remote.advancedSidebar`.
 
-Nothing here is model-facing: no tool, no prompt section, no session event.
+Nothing here is model-facing: no tool, no prompt section, no session event. The one model call is the Changes panel's **Generate**, which a person presses and which reads only the staged patch.
 
 ## Install
 
@@ -28,7 +28,7 @@ The menu has one seat: the session header's utilities row. It acts on the sessio
 
 | Entry | What it opens | What it needs on the Host |
 |---|---|---|
-| Changes | Uncommitted changes in the session's working directory, each file's patch, and staging + commit | `git` on PATH, `ctx.subprocess`, `ctx.fs` |
+| Changes | Uncommitted changes in the session's working directory, each file's patch, staging, commit, a model-written commit message, and push | `git` on PATH, `ctx.subprocess`, `ctx.fs`, and `ctx.llm` + `ctx.agentDefaultModel` for the message |
 | Terminal | Interactive shells of your own, on a tab strip, in that directory | `ctx.subprocess`, `ctx.fs` |
 | Files | That directory, one level at a time, with a text preview | `ctx.fs` |
 | Preview | The workspace's dev server, started and shown in a frame, with its logs | `ctx.subprocess`, `ctx.fs` |
@@ -63,6 +63,10 @@ The kit is also what fixes the menu. The harness's `Menu` primitive clamps a roo
 
 Stage and unstage act on one file or a whole group, and **Commit** records what is staged, with an optional amend. Each write returns the reading that follows it, so the lists never lag a round trip behind the index they describe, and open patches are dropped with the index they described.
 
+**Generate**, beside Commit, has the deployment's own model write the message. It is the model the composer is already set to (`ctx.agentDefaultModel.currentSelection()`), so there is no second credential and no second provider to configure; a Host with no `ctx.llm` or no selection reports the button unavailable rather than failing when it is pressed. The model is shown **the staged patch and nothing else** — not the working tree, not the history, not the session — bounded by `commitMessageMaxBytes` and told when it was cut. The answer lands in the message box for a person to edit; nothing commits on its own. `commitMessagePrompt` replaces the built-in instruction for a repository with its own convention.
+
+**Push** sends the current branch to its own upstream, and nothing else. There is no refspec assembled from browser text: `git push` with no arguments already means exactly what the button offers, and one built from a text field would let a single control push anything anywhere. A branch with no upstream is not pushed but **published** — the button says so, and records the remote it went to (the branch's own remote where it has one, then `origin`, then the first remote there is). Credential prompts are refused rather than waited on (`GIT_TERMINAL_PROMPT=0`), so a repository needing one fails fast instead of hanging until the timeout; that timeout is `gitPushTimeoutMs`, separate from every reading because a push waits on a network and on the remote's own processing.
+
 **Discarding is deliberately absent.** Stage, unstage, and commit are all recoverable — the working tree is untouched by the first two, and a commit stays in the reflog — while `git restore` destroys uncommitted work with nothing left to recover it from. A sidebar is the wrong place for the one irreversible verb in the set, and it is a keystroke away in the Terminal panel beside it.
 
 Four things the panel does rather than leaving to git's own error text:
@@ -72,7 +76,7 @@ Four things the panel does rather than leaving to git's own error text:
 - The author is read with `git var GIT_AUTHOR_IDENT` — git's own answer to "who would this commit be by" — and shown under the box, so a missing `user.email` is visible *before* the button is pressed.
 - Committing has its own timeout (`gitCommitTimeoutMs`, default 2 minutes) because it runs the repository's `pre-commit` hook, which can far outlast any reading; killing one mid-run leaves a stale `index.lock`. Hooks run, and a hook's stderr comes back verbatim rather than summarized.
 
-Both writes are gated by settings (`allowGitStaging`, `allowGitCommit`) that the **Host** enforces, not just the menu: switching them off takes the verb away rather than hiding it.
+Every write is gated by a setting the **Host** enforces, not just the panel — `allowGitStaging`, `allowGitCommit`, `allowGitPush`, `allowCommitMessageDraft`: switching one off takes the verb away rather than hiding it.
 
 **Terminal** allocates its own shells through `ctx.subprocess.spawnTerminal` — deliberately **not** `ctx.terminals`. That registry's sessions are owner-fenced to an `Agent` and are the model's working terminals; joining them would let a human's keystrokes land in a session the model believes it controls.
 
@@ -183,6 +187,8 @@ For a live loop, run `npx tsdown --watch` in this package: the harness's HMR hal
 - **No push channel.** An out-of-tree plugin cannot add a wire frame, so terminal output, preview logs, and the git reading are polled. Background tasks are the exception — they ride the Host's existing `session/jobs` push.
 - **No terminal resize.** The subprocess seam has no resize verb. Long lines wrap rather than scroll, and **Restart** re-measures the box.
 - **The dock reserves its width through the frame's DOM.** `shell.overlay` is the only additive frame-wide seat, and it draws above the columns rather than between them, so reserving space means setting a property and a marker on the frame element and letting two attribute-selector rules do the rest. Both are removed when the dock closes or the plugin unloads. A future frame that stops publishing `data-shell-overlay`, or that positions its details handle differently, would need this updated with it.
+- **The commit-message draft spends model tokens on a human's press.** It is not a session event and the model that writes it never sees the conversation, but it is a real call against the deployment's provider; `allowCommitMessageDraft: false` removes it.
+- **Push has no force, no remote picker, and no refspec.** Those are the verbs that lose work or push somewhere unintended, and the Terminal panel is one keystroke away for them.
 - **Stopping a task suppresses its model notice.** See Background tasks above; `allowTaskKill: false` removes the verb.
 - **Purge removes one artifact.** Exactly the path the persistence backend reported for that session — a sidecar the backend owns is the backend's to remove, and a recursive delete here could take a directory.
 - **The browser bundle is ~1 MB (205 KB gzipped).** The emulator is most of it. The client module loader serves one file per plugin with no code splitting, so it cannot be deferred until the Terminal panel opens.

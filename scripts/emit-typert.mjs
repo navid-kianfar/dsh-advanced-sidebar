@@ -43,11 +43,13 @@ const gitChange = `z.object({
 const gitWrite = `z.object({
   'canStage': z.boolean().readonly(),
   'canCommit': z.boolean().readonly(),
+  'canPush': z.boolean().readonly(),
+  'canDraftMessage': z.boolean().readonly(),
   'author': z.string().readonly().optional(),
 })`
 const gitFailure = `z.object({
   'ok': z.literal(false).readonly(),
-  'code': ${u('no-filesystem','no-git','not-a-repository','git-failed','timeout','cancelled','path-denied','disabled','nothing-staged','empty-message','no-identity')}.readonly(),
+  'code': ${u('no-filesystem','no-git','not-a-repository','git-failed','timeout','cancelled','path-denied','disabled','nothing-staged','empty-message','no-identity','no-upstream','detached-head','no-model','llm-failed')}.readonly(),
   'message': z.string().readonly(),
 })`
 const terminalFailure = `z.object({
@@ -81,6 +83,11 @@ const settingsSection = `z.object({
   'gitCommitTimeoutMs': z.number().readonly(),
   'allowGitStaging': z.boolean().readonly(),
   'allowGitCommit': z.boolean().readonly(),
+  'allowGitPush': z.boolean().readonly(),
+  'gitPushTimeoutMs': z.number().readonly(),
+  'allowCommitMessageDraft': z.boolean().readonly(),
+  'commitMessagePrompt': z.string().readonly(),
+  'commitMessageMaxBytes': z.number().readonly(),
   'terminalShell': z.string().readonly(),
   'terminalScrollback': z.number().readonly(),
   'maxTerminals': z.number().readonly(),
@@ -268,6 +275,36 @@ const ENDPOINTS = [
   'subject': z.string().readonly(),
   'status': ${gitStatusSuccess}.readonly(),
   'notes': z.string().readonly(),
+}), ${gitFailure}])` },
+  },
+  {
+    method: 'gitPush', line: 320,
+    params: [{ name: 'request', wire: 'request', type: 'GitPushRequest', schema: `z.object({
+  'workspacePath': z.string().readonly(),
+  'setUpstream': z.boolean().readonly(),
+})` }],
+    cancellation: true,
+    result: { type: 'GitPushResult', schema: `z.union([z.object({
+  'ok': z.literal(true).readonly(),
+  'branch': z.string().readonly(),
+  'remote': z.string().readonly(),
+  'published': z.boolean().readonly(),
+  'status': ${gitStatusSuccess}.readonly(),
+  'notes': z.string().readonly(),
+}), ${gitFailure}])` },
+  },
+  {
+    method: 'gitCommitMessage', line: 333,
+    params: [{ name: 'request', wire: 'request', type: 'GitCommitMessageRequest', schema: `z.object({
+  'workspacePath': z.string().readonly(),
+  'amend': z.boolean().readonly(),
+})` }],
+    cancellation: true,
+    result: { type: 'GitCommitMessageResult', schema: `z.union([z.object({
+  'ok': z.literal(true).readonly(),
+  'message': z.string().readonly(),
+  'model': z.string().readonly(),
+  'truncated': z.boolean().readonly(),
 }), ${gitFailure}])` },
   },
   {

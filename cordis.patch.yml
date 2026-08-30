@@ -72,6 +72,26 @@
         # locked behind a stale `index.lock`.
         gitCommitTimeoutMs: 120000
 
+        # Push. Only ever the current branch to its own upstream, which is what `git push` with no
+        # arguments already means; a branch with no upstream is published only when the button is
+        # pressed a second time, as Publish. Credential prompts are refused rather than waited on
+        # (GIT_TERMINAL_PROMPT=0), so a repository needing one fails fast instead of hanging.
+        allowGitPush: true
+        # Separate from gitTimeoutMs because a push waits on a network and on the remote's own
+        # processing, neither of which any reading does.
+        gitPushTimeoutMs: 180000
+
+        # The model-written commit message, beside the Commit button. It uses the model the
+        # composer is already set to, so there is no second credential and no second provider to
+        # configure; a Host with no model reports the button unavailable instead of failing when it
+        # is pressed. The model is shown ONLY the staged patch, bounded below.
+        #
+        # An empty prompt uses this plugin's own, which states the subject/body format a commit
+        # message needs; supply one here to impose a repository's own convention.
+        allowCommitMessageDraft: true
+        commitMessagePrompt: ''
+        commitMessageMaxBytes: 65536
+
         # Panel terminals. An empty shell resolves $SHELL, then the platform default. Scrollback is
         # counted in characters; the grace period is the TERM-to-KILL window when a panel closes.
         terminalShell: ''

@@ -102,3 +102,21 @@ export function ExternalGlyph({ size = 16, className }: GlyphProps) {
     </svg>
   )
 }
+
+/**
+ * An arrow leaving a branch line: a push.
+ * @param props - size and class overrides.
+ * @returns the glyph element.
+ */
+export function PushGlyph({ size = 16, className }: GlyphProps) {
+  return (
+    <svg
+      className={className} width={size} height={size} viewBox="0 0 16 16" fill="none"
+      stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+    >
+      <path d="M8 13.5V3.2" />
+      <path d="M4.4 6.8 8 3.2l3.6 3.6" />
+      <path d="M3 14h10" />
+    </svg>
+  )
+}
