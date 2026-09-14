@@ -1,6 +1,6 @@
 {
   "name": "@achasoft/dsh-advanced-sidebar",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Advanced sidebar operations for the DeepSeek Harness Web Client: git changes, multi-session terminals, a file browser, a dev-server preview, background tasks, Open in, Archive and Delete, in a resizable dock beside the conversation",
   "license": "MIT",
   "type": "module",
@@ -20,6 +20,10 @@
     "./host": {
       "types": "./types/host/index.d.ts",
       "default": "./lib/host.js"
+    },
+    "./ui-preview": {
+      "types": "./types/ui-preview.d.ts",
+      "default": "./lib/ui-preview.js"
     },
     "./client": {
       "default": "./lib/client.js"
@@ -93,12 +97,14 @@
     "@deepseek-ai/dsh-client-ui-slots": "link:../../deepseek-harness/packages/client/ui-slots",
     "@deepseek-ai/dsh-client-ui-theme": "link:../../deepseek-harness/packages/client/ui-theme",
     "@deepseek-ai/dsh-fs": "link:../../deepseek-harness/packages/fs/fs",
+    "@deepseek-ai/dsh-host-webserver": "link:../../deepseek-harness/packages/host/webserver",
     "@deepseek-ai/dsh-jobs": "link:../../deepseek-harness/packages/jobs/jobs",
     "@deepseek-ai/dsh-llm": "link:../../deepseek-harness/packages/llm/llm",
     "@deepseek-ai/dsh-session": "link:../../deepseek-harness/packages/core/session",
     "@deepseek-ai/dsh-session-persistence": "link:../../deepseek-harness/packages/session/session-persistence",
     "@deepseek-ai/dsh-settings": "link:../../deepseek-harness/packages/settings/settings",
     "@deepseek-ai/dsh-subprocess": "link:../../deepseek-harness/packages/subprocess/subprocess",
+    "@deepseek-ai/dsh-tools": "link:../../deepseek-harness/packages/core/tools",
     "@deepseek-ai/dsh-typert-protocol": "link:../../deepseek-harness/packages/typert/protocol",
     "@deepseek-ai/dsh-workspace": "link:../../deepseek-harness/packages/workspace/workspace",
     "@deepseek-ai/schemastery": "link:../../deepseek-harness/vendor/schemastery",

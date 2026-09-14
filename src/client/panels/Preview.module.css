@@ -1,0 +1,158 @@
+/**
+ * The Preview panel's own styles, split out of `Panels.module.css` when the panel grew four modes.
+ *
+ * Only `--dsw-*` tokens ui-theme declares are used; `tests/styles.spec.ts` walks every stylesheet in
+ * this package and fails on one that is not, because an undeclared custom property is invalid at
+ * computed-value time and silently inherits instead of failing loudly.
+ * @module @achasoft/dsh-advanced-sidebar/client/panels/Preview.module.css
+ */
+
+/* The mode strip sits at the very top of the panel, above every mode's own toolbar. */
+.modes {
+  flex: none;
+}
+
+/* One row of controls. Shared by every mode so a person moving between them sees one gutter. */
+.toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A quiet line of facts under a toolbar: sizes, kinds, storage notes. */
+.quiet {
+  flex: none;
+  margin: 0;
+  padding: 4px 10px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.note {
+  flex: none;
+  margin: 4px 8px;
+}
+
+/*
+ * The scratchpad puts the editor beside the frame rather than above it: the two are read together
+ * while typing, and the dock is a tall column, so a vertical split would leave the frame a slit.
+ */
+.split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.scratchPane {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 8px 6px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.scratchText {
+  width: 100%;
+  min-height: 120px;
+  max-height: 40vh;
+  resize: vertical;
+  padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-markdown-code-block);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+  line-height: 16px;
+  tab-size: 2;
+}
+
+.scratchText:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+/* The rendered-Markdown pane fills the stage and scrolls on its own. `relative` plus a stacking
+   order is what keeps it above a covered frame, which is absolutely positioned inside the same
+   stage so the frame can stay loaded while the pane is what a person reads. */
+.markdownPane {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px 20px;
+  background: var(--dsw-alias-bg-base);
+}
+
+/* Media the browser draws itself; the stage centres it and it shrinks to fit. */
+.media {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: var(--dsw-alias-bg-base);
+}
+
+.pdfPane {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: var(--dsw-alias-bg-base);
+}
+
+/* The "nothing to render here" state: a centred card, because the panel has no other content. */
+.empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 20px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.emptyActions {
+  display: flex;
+  gap: 6px;
+}
+
+/* The viewport picker sits at the foot of the panel and stays there in every mode. */
+.viewportBar {
+  border-bottom: 0;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+/*
+ * A frame the panel covers with its own rendering — Markdown, or a text file read as text.
+ *
+ * `visibility: hidden` rather than `display: none` or an unmounted element: the document must stay
+ * loaded, because the agent's `dom`, `eval` and `console` commands run against it, and a frame with
+ * no layout never finishes loading.
+ */
+.frameUnder {
+  position: absolute;
+  width: 0;
+  height: 0;
+  visibility: hidden;
+}
+
+/* The covered frame is positioned against the stage, which is what `absolute` above resolves to. */
+.stageHost {
+  position: relative;
+}

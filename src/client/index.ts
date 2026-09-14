@@ -235,6 +235,11 @@ function surface(ctx: ClientContext): void {
       previewStart: (workspacePath, name) => remote.previewStart({ workspacePath, name }).then(unwrap),
       previewStop: serverId => remote.previewStop({ serverId }).then(unwrap),
       previewLogs: (serverId, fromOffset) => remote.previewLogs({ serverId, fromOffset }).then(unwrap),
+      previewFileInfo: (workspacePath, path, signal) =>
+        remote.previewFileInfo({ workspacePath, path }, signal).then(unwrap),
+      previewPoll: request => remote.previewPoll(request).then(unwrap),
+      previewResult: request => remote.previewResult(request).then(unwrap),
+      previewRelease: clientId => remote.previewRelease({ clientId }).then(unwrap),
       readFile: (path, workspacePath, signal) => remote.readFile({ path, workspacePath }, signal).then(unwrap),
       openPath: async (path) => {
         try {

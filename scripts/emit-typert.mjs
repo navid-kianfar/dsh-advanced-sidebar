@@ -114,6 +114,10 @@ const settingsSection = `z.object({
   'previewReadyTimeoutMs': z.number().readonly(),
   'previewScrollback': z.number().readonly(),
   'previewGraceMs': z.number().readonly(),
+  'previewMaxFileBytes': z.number().readonly(),
+  'previewProxyTimeoutMs': z.number().readonly(),
+  'previewCommandTimeoutMs': z.number().readonly(),
+  'previewBindTtlMs': z.number().readonly(),
 })`
 const gitStatusSuccess = `z.object({
   'ok': z.literal(true).readonly(),
@@ -156,6 +160,123 @@ const readFileFailure = `z.object({
   'message': z.string().readonly(),
 })`
 
+/* --- same-origin preview serving and the agent channel ---------------------------------------- */
+
+const previewFileInfoFields = `  'path': z.string().readonly(),
+  'name': z.string().readonly(),
+  'kind': ${u('iframe','markdown','image','media','pdf','text','other')}.readonly(),
+  'contentType': z.string().readonly(),
+  'bytes': z.number().readonly(),
+  'withinLimit': z.boolean().readonly(),
+  'url': z.string().readonly().optional(),
+  'token': z.string().readonly(),
+  'regular': z.boolean().readonly(),`
+
+const previewFileFailure = `z.object({
+  'ok': z.literal(false).readonly(),
+  'code': ${u('no-filesystem','path-denied','not-a-file','read-failed')}.readonly(),
+  'message': z.string().readonly(),
+})`
+
+const previewBind = `z.object({
+  'clientId': z.string().readonly(),
+  'sessionId': z.string().readonly(),
+  'mode': ${u('server','file','url','scratchpad')}.readonly(),
+  'filePath': z.string().readonly().optional(),
+  'workspacePath': z.string().readonly().optional(),
+  'url': z.string().readonly().optional(),
+  'inspectable': z.boolean().readonly(),
+  'width': z.number().readonly(),
+  'height': z.number().readonly(),
+})`
+
+const previewCommand = `z.object({
+  'id': z.string().readonly(),
+  'clientId': z.string().readonly(),
+  'kind': ${u('open','dom','eval','console','click','input','reload','resize','close')}.readonly(),
+  'selector': z.string().readonly().optional(),
+  'expression': z.string().readonly().optional(),
+  'cursor': z.number().readonly().optional(),
+  'text': z.string().readonly().optional(),
+  'key': z.string().readonly().optional(),
+  'width': z.number().readonly().optional(),
+  'height': z.number().readonly().optional(),
+  'timeoutMs': z.number().readonly(),
+})`
+
+const previewMessage = `z.object({
+  'commands': z.array(${previewCommand}).readonly(),
+  'controls': z.array(z.object({
+  'control': z.literal('open').readonly(),
+  'open': z.object({
+  'clientId': z.string().readonly(),
+  'mode': ${u('server','file','url','scratchpad')}.readonly(),
+  'filePath': z.string().readonly().optional(),
+  'url': z.string().readonly().optional(),
+  'workspacePath': z.string().readonly().optional(),
+}).readonly(),
+})).readonly(),
+})`
+
+const previewConsoleEntry = `z.object({
+  'level': ${u('log','info','warn','error','uncaught','rejection')}.readonly(),
+  'text': z.string().readonly(),
+  'at': z.number().readonly(),
+})`
+
+const previewCommandResult = `z.union([z.object({
+  'kind': z.literal('dom').readonly(),
+  'selector': z.string().readonly(),
+  'viewport': z.object({
+  'width': z.number().readonly(),
+  'height': z.number().readonly(),
+}).readonly(),
+  'nodes': z.array(z.object({
+  'tag': z.string().readonly(),
+  'selector': z.string().readonly(),
+  'text': z.string().readonly(),
+  'display': z.string().readonly(),
+  'box': z.object({
+  'x': z.number().readonly(),
+  'y': z.number().readonly(),
+  'width': z.number().readonly(),
+  'height': z.number().readonly(),
+}).readonly(),
+  'depth': z.number().readonly(),
+})).readonly(),
+  'text': z.string().readonly(),
+  'truncated': z.boolean().readonly(),
+  'url': z.string().readonly(),
+}), z.object({
+  'kind': z.literal('eval').readonly(),
+  'value': z.string().readonly(),
+  'note': z.string().readonly().optional(),
+  'truncated': z.boolean().readonly(),
+}), z.object({
+  'kind': z.literal('console').readonly(),
+  'entries': z.array(${previewConsoleEntry}).readonly(),
+  'cursor': z.number().readonly(),
+  'lossy': z.boolean().readonly(),
+}), z.object({
+  'kind': z.literal('ack').readonly(),
+  'detail': z.string().readonly(),
+  'width': z.number().readonly().optional(),
+  'height': z.number().readonly().optional(),
+})])`
+
+const previewPollFailure = `z.object({
+  'ok': z.literal(false).readonly(),
+  'code': ${u('no-subprocess','closed')}.readonly(),
+  'message': z.string().readonly(),
+})`
+
+const previewSurfaceInfo = `z.object({
+  'fileRoute': z.string().readonly(),
+  'proxyRoute': z.string().readonly(),
+  'available': z.boolean().readonly(),
+  'reason': z.string().readonly().optional(),
+})`
+
 /** method -> { params: [{name, wire, type, schema}], cancellation, result: {type, schema}, line } */
 const ENDPOINTS = [
   {
@@ -189,6 +310,7 @@ const ENDPOINTS = [
   'reason': z.string().readonly().optional(),
   'detail': z.string().readonly().optional(),
   'running': z.number().readonly(),
+  'surface': ${previewSurfaceInfo}.readonly().optional(),
 }).readonly(),
   'tasks': z.object({
   'available': z.boolean().readonly(),
@@ -392,6 +514,58 @@ const ENDPOINTS = [
     result: { type: 'PreviewStopResult', schema: `z.union([z.object({
   'ok': z.literal(true).readonly(),
 }), ${previewFailure}])` },
+  },
+  {
+    method: 'previewFileInfo', line: 0,
+    params: [{ name: 'request', wire: 'request', type: 'PreviewFileInfoRequest', schema: `z.object({
+  'workspacePath': z.string().readonly(),
+  'path': z.string().readonly(),
+})` }],
+    cancellation: true,
+    result: { type: 'PreviewFileInfoResult', schema: `z.union([z.object({
+  'ok': z.literal(true).readonly(),
+${previewFileInfoFields}
+}), ${previewFileFailure}])` },
+  },
+  {
+    method: 'previewPoll', line: 0,
+    params: [{ name: 'request', wire: 'request', type: 'PreviewPollRequest', schema: `z.object({
+  'clientId': z.string().readonly(),
+  'sessionId': z.string().readonly(),
+  'mounted': z.boolean().readonly(),
+  'bind': ${previewBind}.readonly(),
+})` }],
+    cancellation: false,
+    result: { type: 'PreviewPollResult', schema: `z.union([z.object({
+  'ok': z.literal(true).readonly(),
+  'message': ${previewMessage}.readonly(),
+  'bindTtlMs': z.number().readonly(),
+}), ${previewPollFailure}])` },
+  },
+  {
+    method: 'previewResult', line: 0,
+    params: [{ name: 'request', wire: 'request', type: 'PreviewResultRequest', schema: `z.object({
+  'clientId': z.string().readonly(),
+  'id': z.string().readonly(),
+  'ok': z.boolean().readonly(),
+  'error': z.string().readonly().optional(),
+  'result': ${previewCommandResult}.readonly().optional(),
+  'console': z.array(${previewConsoleEntry}).readonly().optional(),
+})` }],
+    cancellation: false,
+    result: { type: 'PreviewResultAck', schema: `z.union([z.object({
+  'ok': z.literal(true).readonly(),
+}), ${previewPollFailure}])` },
+  },
+  {
+    method: 'previewRelease', line: 0,
+    params: [{ name: 'request', wire: 'request', type: 'PreviewReleaseRequest', schema: `z.object({
+  'clientId': z.string().readonly(),
+})` }],
+    cancellation: false,
+    result: { type: 'PreviewReleaseResult', schema: `z.union([z.object({
+  'ok': z.literal(true).readonly(),
+}), ${previewPollFailure}])` },
   },
   {
     method: 'readFile', line: 422,

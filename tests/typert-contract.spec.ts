@@ -92,6 +92,41 @@ const SECTION = {
   previewReadyTimeoutMs: 60_000,
   previewScrollback: 200_000,
   previewGraceMs: 3_000,
+  previewMaxFileBytes: 33_554_432,
+  previewProxyTimeoutMs: 30_000,
+  previewCommandTimeoutMs: 15_000,
+  previewBindTtlMs: 6_000,
+}
+
+/** One panel's report, as `previewPoll` carries it. */
+const BIND = {
+  clientId: 'c-1',
+  sessionId: 's-1',
+  mode: 'file',
+  filePath: '/w/index.html',
+  workspacePath: '/w',
+  url: '/advanced-sidebar/preview-file?workspace=%2Fw&path=%2Fw%2Findex.html',
+  inspectable: true,
+  width: 1_024,
+  height: 768,
+}
+
+/** One DOM reading, as the panel answers it. */
+const DOM_RESULT = {
+  kind: 'dom',
+  selector: 'main',
+  viewport: { width: 1_024, height: 768 },
+  nodes: [{
+    tag: 'main',
+    selector: '#app',
+    text: 'hello',
+    display: 'block',
+    box: { x: 0, y: 0, width: 320, height: 200 },
+    depth: 0,
+  }],
+  text: 'hello',
+  truncated: false,
+  url: 'http://127.0.0.1:3080/advanced-sidebar/preview-file?path=%2Fw%2Findex.html',
 }
 
 /**
@@ -142,8 +177,8 @@ describe('generated Typert contract', () => {
       .map(descriptor => descriptor.method).sort()
     expect(cancellable).toEqual([
       'deleteSession', 'describe', 'gitCommit', 'gitCommitMessage', 'gitDiff', 'gitPush',
-      'gitStage', 'gitStatus', 'gitUnstage', 'listEntries', 'openIn', 'previewList',
-      'previewStart', 'readFile', 'terminalOpen',
+      'gitStage', 'gitStatus', 'gitUnstage', 'listEntries', 'openIn', 'previewFileInfo',
+      'previewList', 'previewStart', 'readFile', 'terminalOpen',
     ])
     for (const descriptor of descriptors) {
       if (descriptor.cancellation !== undefined) expect(descriptor.cancellation.parameter).toBe('signal')
@@ -168,6 +203,10 @@ describe('generated Typert contract', () => {
       previewLogs: { serverId: 'p-1', fromOffset: 0 },
       previewStart: { workspacePath: '/w', name: 'dev' },
       previewStop: { serverId: 'p-1' },
+      previewFileInfo: { workspacePath: '/w', path: '/w/index.html' },
+      previewPoll: { clientId: 'c-1', sessionId: 's-1', mounted: true, bind: BIND },
+      previewResult: { clientId: 'c-1', id: 'cmd-1', ok: true, result: DOM_RESULT },
+      previewRelease: { clientId: 'c-1' },
       taskOutput: { sessionId: 's-1', taskId: 'bash-1' },
       terminalClose: { terminalId: 't-1' },
       terminalOpen: { workspacePath: '/w', cols: 80, rows: 24 },
@@ -197,7 +236,15 @@ describe('generated Typert contract', () => {
         terminal: { available: true },
         files: { available: true },
         tasks: { available: true, canKill: true, canReadOutput: true },
-        preview: { available: true, running: 1 },
+        preview: {
+          available: true,
+          running: 1,
+          surface: {
+            fileRoute: '/advanced-sidebar/preview-file',
+            proxyRoute: '/advanced-sidebar/preview-proxy',
+            available: true,
+          },
+        },
         openIn: [{ id: 'reveal', label: 'Finder', available: true, kind: 'reveal' }],
         deletion: { canPurge: false, mode: 'archive' },
         settings: SECTION,
@@ -234,6 +281,34 @@ describe('generated Typert contract', () => {
         server: { name: 'dev', origin: 'settings', startable: true, state: 'starting', port: 3000 },
       },
       previewStop: { ok: true },
+      previewFileInfo: {
+        ok: true,
+        path: '/w/index.html',
+        name: 'index.html',
+        kind: 'iframe',
+        contentType: 'text/html',
+        bytes: 512,
+        withinLimit: true,
+        url: '/advanced-sidebar/preview-file?workspace=%2Fw&path=%2Fw%2Findex.html',
+        token: 'W/"abc"',
+        regular: true,
+      },
+      previewPoll: {
+        ok: true,
+        message: {
+          commands: [{
+            id: 'cmd-1',
+            clientId: 'c-1',
+            kind: 'dom',
+            selector: 'main',
+            timeoutMs: 15_000,
+          }],
+          controls: [{ control: 'open', open: { clientId: 'c-1', mode: 'url', url: 'http://127.0.0.1:5173/' } }],
+        },
+        bindTtlMs: 6_000,
+      },
+      previewResult: { ok: true },
+      previewRelease: { ok: true },
       readFile: { ok: true, path: '/w/a.ts', text: 'x', binary: false, truncated: false, bytes: 1 },
       taskKill: { ok: true, outcome: 'requested' },
       taskOutput: { ok: true, taskId: 'bash-1', readable: true, text: 'done' },
@@ -264,6 +339,10 @@ describe('generated Typert contract', () => {
       previewLogs: { ok: false, code: 'unknown-server', message: 'stopped' },
       previewStart: { ok: false, code: 'not-startable', message: 'no command' },
       previewStop: { ok: false, code: 'unknown-server', message: 'stopped' },
+      previewFileInfo: { ok: false, code: 'not-a-file', message: 'directory' },
+      previewPoll: { ok: false, code: 'closed', message: 'unloading' },
+      previewResult: { ok: false, code: 'no-subprocess', message: 'headless' },
+      previewRelease: { ok: false, code: 'closed', message: 'unloading' },
       readFile: { ok: false, code: 'not-a-file', message: 'directory' },
       taskKill: { ok: false, code: 'disabled', message: 'off' },
       taskOutput: { ok: false, code: 'no-registry', message: 'absent' },

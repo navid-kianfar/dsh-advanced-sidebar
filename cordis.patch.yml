@@ -118,6 +118,18 @@
         previewReadyTimeoutMs: 60000
         previewScrollback: 200000
         previewGraceMs: 3000
+        # Same-origin preview serving. `previewMaxFileBytes` bounds one workspace file handed to the
+        # frame — a video legitimately dwarfs any text preview, which is why the cap is separate
+        # from filesMaxPreviewBytes — and `previewProxyTimeoutMs` bounds one proxied request to a
+        # loopback dev server.
+        previewMaxFileBytes: 33554432
+        previewProxyTimeoutMs: 30000
+        # The agent channel behind `ui_preview`. `previewCommandTimeoutMs` is how long one command
+        # waits for the panel to answer before the tool reports a timeout instead of holding the
+        # model's turn open; `previewBindTtlMs` is how long a panel is trusted after its last poll,
+        # which is what turns a closed tab into "no preview surface" rather than a silent wait.
+        previewCommandTimeoutMs: 15000
+        previewBindTtlMs: 6000
         previews: []
         # Example rows — uncomment and adapt, or put the same thing in .claude/launch.json:
         # previews:
@@ -156,3 +168,19 @@
     # `<row name>/package.json`, so a subpath row here would leave every seat silently unserved.
     - id: advanced-sidebar-ui
       name: '@achasoft/dsh-advanced-sidebar'
+
+    # The agent-facing `ui_preview` tool. Its own row, so a deployment can mount the sidebar without
+    # giving a model a verb on it — drop this row and the tool does not exist. The row declares
+    # `inject: ['tools', 'advancedSidebar']`, which is what makes it wait for the service it calls
+    # instead of racing the Host row that provides it.
+    #
+    # Trust boundary: `open` with a path and every file argument are contained to the session
+    # workspace, `open` with a URL accepts only http(s) (the same latitude the panel's address bar
+    # gives a person), and the Host's reverse proxy refuses every non-loopback host on its own — so
+    # this tool cannot turn the GUI into an open proxy. Set `commandTimeoutMs` here to change how
+    # long one command waits for the browser; the Host's own `previewCommandTimeoutMs` is the outer
+    # deadline and is the one that matters when both are set.
+    - id: advanced-sidebar-ui-preview
+      name: '@achasoft/dsh-advanced-sidebar/ui-preview'
+      config:
+        commandTimeoutMs: 15000

@@ -36,6 +36,12 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_describe_result$schema = z.
   'reason': z.string().readonly().optional(),
   'detail': z.string().readonly().optional(),
   'running': z.number().readonly(),
+  'surface': z.object({
+  'fileRoute': z.string().readonly(),
+  'proxyRoute': z.string().readonly(),
+  'available': z.boolean().readonly(),
+  'reason': z.string().readonly().optional(),
+}).readonly().optional(),
 }).readonly(),
   'tasks': z.object({
   'available': z.boolean().readonly(),
@@ -107,6 +113,10 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_describe_result$schema = z.
   'previewReadyTimeoutMs': z.number().readonly(),
   'previewScrollback': z.number().readonly(),
   'previewGraceMs': z.number().readonly(),
+  'previewMaxFileBytes': z.number().readonly(),
+  'previewProxyTimeoutMs': z.number().readonly(),
+  'previewCommandTimeoutMs': z.number().readonly(),
+  'previewBindTtlMs': z.number().readonly(),
 }).readonly(),
   'readAt': z.number().readonly(),
 })
@@ -571,6 +581,146 @@ const _achasoft_dsh_advanced_sidebar_advancedSidebar_previewStop_result$schema =
 }), z.object({
   'ok': z.literal(false).readonly(),
   'code': z.union([z.literal("no-subprocess"), z.literal("no-filesystem"), z.literal("path-denied"), z.literal("unknown-server"), z.literal("not-startable"), z.literal("unavailable"), z.literal("spawn-failed"), z.literal("limit-reached"), z.literal("closed")]).readonly(),
+  'message': z.string().readonly(),
+})])
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_previewFileInfo_parameter_0$schema = z.object({
+  'workspacePath': z.string().readonly(),
+  'path': z.string().readonly(),
+})
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_previewFileInfo_result$schema = z.union([z.object({
+  'ok': z.literal(true).readonly(),
+  'path': z.string().readonly(),
+  'name': z.string().readonly(),
+  'kind': z.union([z.literal("iframe"), z.literal("markdown"), z.literal("image"), z.literal("media"), z.literal("pdf"), z.literal("text"), z.literal("other")]).readonly(),
+  'contentType': z.string().readonly(),
+  'bytes': z.number().readonly(),
+  'withinLimit': z.boolean().readonly(),
+  'url': z.string().readonly().optional(),
+  'token': z.string().readonly(),
+  'regular': z.boolean().readonly(),
+}), z.object({
+  'ok': z.literal(false).readonly(),
+  'code': z.union([z.literal("no-filesystem"), z.literal("path-denied"), z.literal("not-a-file"), z.literal("read-failed")]).readonly(),
+  'message': z.string().readonly(),
+})])
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_previewPoll_parameter_0$schema = z.object({
+  'clientId': z.string().readonly(),
+  'sessionId': z.string().readonly(),
+  'mounted': z.boolean().readonly(),
+  'bind': z.object({
+  'clientId': z.string().readonly(),
+  'sessionId': z.string().readonly(),
+  'mode': z.union([z.literal("server"), z.literal("file"), z.literal("url"), z.literal("scratchpad")]).readonly(),
+  'filePath': z.string().readonly().optional(),
+  'workspacePath': z.string().readonly().optional(),
+  'url': z.string().readonly().optional(),
+  'inspectable': z.boolean().readonly(),
+  'width': z.number().readonly(),
+  'height': z.number().readonly(),
+}).readonly(),
+})
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_previewPoll_result$schema = z.union([z.object({
+  'ok': z.literal(true).readonly(),
+  'message': z.object({
+  'commands': z.array(z.object({
+  'id': z.string().readonly(),
+  'clientId': z.string().readonly(),
+  'kind': z.union([z.literal("open"), z.literal("dom"), z.literal("eval"), z.literal("console"), z.literal("click"), z.literal("input"), z.literal("reload"), z.literal("resize"), z.literal("close")]).readonly(),
+  'selector': z.string().readonly().optional(),
+  'expression': z.string().readonly().optional(),
+  'cursor': z.number().readonly().optional(),
+  'text': z.string().readonly().optional(),
+  'key': z.string().readonly().optional(),
+  'width': z.number().readonly().optional(),
+  'height': z.number().readonly().optional(),
+  'timeoutMs': z.number().readonly(),
+})).readonly(),
+  'controls': z.array(z.object({
+  'control': z.literal('open').readonly(),
+  'open': z.object({
+  'clientId': z.string().readonly(),
+  'mode': z.union([z.literal("server"), z.literal("file"), z.literal("url"), z.literal("scratchpad")]).readonly(),
+  'filePath': z.string().readonly().optional(),
+  'url': z.string().readonly().optional(),
+  'workspacePath': z.string().readonly().optional(),
+}).readonly(),
+})).readonly(),
+}).readonly(),
+  'bindTtlMs': z.number().readonly(),
+}), z.object({
+  'ok': z.literal(false).readonly(),
+  'code': z.union([z.literal("no-subprocess"), z.literal("closed")]).readonly(),
+  'message': z.string().readonly(),
+})])
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_previewResult_parameter_0$schema = z.object({
+  'clientId': z.string().readonly(),
+  'id': z.string().readonly(),
+  'ok': z.boolean().readonly(),
+  'error': z.string().readonly().optional(),
+  'result': z.union([z.object({
+  'kind': z.literal('dom').readonly(),
+  'selector': z.string().readonly(),
+  'viewport': z.object({
+  'width': z.number().readonly(),
+  'height': z.number().readonly(),
+}).readonly(),
+  'nodes': z.array(z.object({
+  'tag': z.string().readonly(),
+  'selector': z.string().readonly(),
+  'text': z.string().readonly(),
+  'display': z.string().readonly(),
+  'box': z.object({
+  'x': z.number().readonly(),
+  'y': z.number().readonly(),
+  'width': z.number().readonly(),
+  'height': z.number().readonly(),
+}).readonly(),
+  'depth': z.number().readonly(),
+})).readonly(),
+  'text': z.string().readonly(),
+  'truncated': z.boolean().readonly(),
+  'url': z.string().readonly(),
+}), z.object({
+  'kind': z.literal('eval').readonly(),
+  'value': z.string().readonly(),
+  'note': z.string().readonly().optional(),
+  'truncated': z.boolean().readonly(),
+}), z.object({
+  'kind': z.literal('console').readonly(),
+  'entries': z.array(z.object({
+  'level': z.union([z.literal("log"), z.literal("info"), z.literal("warn"), z.literal("error"), z.literal("uncaught"), z.literal("rejection")]).readonly(),
+  'text': z.string().readonly(),
+  'at': z.number().readonly(),
+})).readonly(),
+  'cursor': z.number().readonly(),
+  'lossy': z.boolean().readonly(),
+}), z.object({
+  'kind': z.literal('ack').readonly(),
+  'detail': z.string().readonly(),
+  'width': z.number().readonly().optional(),
+  'height': z.number().readonly().optional(),
+})]).readonly().optional(),
+  'console': z.array(z.object({
+  'level': z.union([z.literal("log"), z.literal("info"), z.literal("warn"), z.literal("error"), z.literal("uncaught"), z.literal("rejection")]).readonly(),
+  'text': z.string().readonly(),
+  'at': z.number().readonly(),
+})).readonly().optional(),
+})
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_previewResult_result$schema = z.union([z.object({
+  'ok': z.literal(true).readonly(),
+}), z.object({
+  'ok': z.literal(false).readonly(),
+  'code': z.union([z.literal("no-subprocess"), z.literal("closed")]).readonly(),
+  'message': z.string().readonly(),
+})])
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_previewRelease_parameter_0$schema = z.object({
+  'clientId': z.string().readonly(),
+})
+const _achasoft_dsh_advanced_sidebar_advancedSidebar_previewRelease_result$schema = z.union([z.object({
+  'ok': z.literal(true).readonly(),
+}), z.object({
+  'ok': z.literal(false).readonly(),
+  'code': z.union([z.literal("no-subprocess"), z.literal("closed")]).readonly(),
   'message': z.string().readonly(),
 })])
 const _achasoft_dsh_advanced_sidebar_advancedSidebar_readFile_parameter_0$schema = z.object({
@@ -1067,6 +1217,107 @@ export const TYPERT = {
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewStop_result$schema,
       },
       sourceLocation: {"file":"src/host/index.ts","line":401,"column":3},
+    },
+    {
+      id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/previewFileInfo',
+      service: 'advancedSidebar',
+      namespace: 'advancedSidebar',
+      method: 'previewFileInfo',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '../src/host/types.ts#PreviewFileInfoRequest',
+            schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewFileInfo_parameter_0$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '../src/host/types.ts#PreviewFileInfoResult',
+        schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewFileInfo_result$schema,
+      },
+      sourceLocation: {"file":"src/host/index.ts","line":0,"column":3},
+    },
+    {
+      id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/previewPoll',
+      service: 'advancedSidebar',
+      namespace: 'advancedSidebar',
+      method: 'previewPoll',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '../src/host/types.ts#PreviewPollRequest',
+            schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewPoll_parameter_0$schema,
+          },
+        },
+      ],
+      result: {
+        mode: 'strict',
+        typeSymbol: '../src/host/types.ts#PreviewPollResult',
+        schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewPoll_result$schema,
+      },
+      sourceLocation: {"file":"src/host/index.ts","line":0,"column":3},
+    },
+    {
+      id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/previewResult',
+      service: 'advancedSidebar',
+      namespace: 'advancedSidebar',
+      method: 'previewResult',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '../src/host/types.ts#PreviewResultRequest',
+            schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewResult_parameter_0$schema,
+          },
+        },
+      ],
+      result: {
+        mode: 'strict',
+        typeSymbol: '../src/host/types.ts#PreviewResultAck',
+        schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewResult_result$schema,
+      },
+      sourceLocation: {"file":"src/host/index.ts","line":0,"column":3},
+    },
+    {
+      id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/previewRelease',
+      service: 'advancedSidebar',
+      namespace: 'advancedSidebar',
+      method: 'previewRelease',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '../src/host/types.ts#PreviewReleaseRequest',
+            schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewRelease_parameter_0$schema,
+          },
+        },
+      ],
+      result: {
+        mode: 'strict',
+        typeSymbol: '../src/host/types.ts#PreviewReleaseResult',
+        schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_previewRelease_result$schema,
+      },
+      sourceLocation: {"file":"src/host/index.ts","line":0,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/readFile',

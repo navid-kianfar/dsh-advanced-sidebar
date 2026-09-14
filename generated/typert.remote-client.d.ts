@@ -3,7 +3,7 @@ import type {
   RemoteResult,
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { AdvancedSidebarView, DeleteSessionRequest, DeleteSessionResult, GitCommitMessageRequest, GitCommitMessageResult, GitCommitRequest, GitCommitResult, GitDiffRequest, GitDiffResult, GitPushRequest, GitPushResult, GitStageRequest, GitStageResult, GitStatusRequest, GitStatusResult, ListEntriesRequest, ListEntriesResult, OpenInRequest, OpenInResult, PreviewListRequest, PreviewListResult, PreviewLogsRequest, PreviewLogsResult, PreviewStartRequest, PreviewStartResult, PreviewStopRequest, PreviewStopResult, ReadFileRequest, ReadFileResult, TaskKillRequest, TaskKillResult, TaskOutputRequest, TaskOutputResult, TerminalAckResult, TerminalCloseRequest, TerminalOpenRequest, TerminalOpenResult, TerminalReadRequest, TerminalReadResult, TerminalSignalRequest, TerminalWriteRequest } from '../src/host/types.ts'
+import type { AdvancedSidebarView, DeleteSessionRequest, DeleteSessionResult, GitCommitMessageRequest, GitCommitMessageResult, GitCommitRequest, GitCommitResult, GitDiffRequest, GitDiffResult, GitPushRequest, GitPushResult, GitStageRequest, GitStageResult, GitStatusRequest, GitStatusResult, ListEntriesRequest, ListEntriesResult, OpenInRequest, OpenInResult, PreviewFileInfoRequest, PreviewFileInfoResult, PreviewListRequest, PreviewListResult, PreviewLogsRequest, PreviewLogsResult, PreviewPollRequest, PreviewPollResult, PreviewReleaseRequest, PreviewReleaseResult, PreviewResultAck, PreviewResultRequest, PreviewStartRequest, PreviewStartResult, PreviewStopRequest, PreviewStopResult, ReadFileRequest, ReadFileResult, TaskKillRequest, TaskKillResult, TaskOutputRequest, TaskOutputResult, TerminalAckResult, TerminalCloseRequest, TerminalOpenRequest, TerminalOpenResult, TerminalReadRequest, TerminalReadResult, TerminalSignalRequest, TerminalWriteRequest } from '../src/host/types.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$616476616e63656453696465626172 {
@@ -22,6 +22,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     previewLogs: (request: PreviewLogsRequest) => Promise<RemoteResult<PreviewLogsResult>>
     previewStart: (request: PreviewStartRequest, signal?: AbortSignal) => Promise<RemoteResult<PreviewStartResult>>
     previewStop: (request: PreviewStopRequest) => Promise<RemoteResult<PreviewStopResult>>
+    previewFileInfo: (request: PreviewFileInfoRequest, signal?: AbortSignal) => Promise<RemoteResult<PreviewFileInfoResult>>
+    previewPoll: (request: PreviewPollRequest) => Promise<RemoteResult<PreviewPollResult>>
+    previewResult: (request: PreviewResultRequest) => Promise<RemoteResult<PreviewResultAck>>
+    previewRelease: (request: PreviewReleaseRequest) => Promise<RemoteResult<PreviewReleaseResult>>
     readFile: (request: ReadFileRequest, signal?: AbortSignal) => Promise<RemoteResult<ReadFileResult>>
     taskKill: (request: TaskKillRequest) => Promise<RemoteResult<TaskKillResult>>
     taskOutput: (request: TaskOutputRequest) => Promise<RemoteResult<TaskOutputResult>>
@@ -47,6 +51,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'advancedSidebar/previewLogs': (request: PreviewLogsRequest) => Promise<RemoteResult<PreviewLogsResult>>
     'advancedSidebar/previewStart': (request: PreviewStartRequest, signal?: AbortSignal) => Promise<RemoteResult<PreviewStartResult>>
     'advancedSidebar/previewStop': (request: PreviewStopRequest) => Promise<RemoteResult<PreviewStopResult>>
+    'advancedSidebar/previewFileInfo': (request: PreviewFileInfoRequest, signal?: AbortSignal) => Promise<RemoteResult<PreviewFileInfoResult>>
+    'advancedSidebar/previewPoll': (request: PreviewPollRequest) => Promise<RemoteResult<PreviewPollResult>>
+    'advancedSidebar/previewResult': (request: PreviewResultRequest) => Promise<RemoteResult<PreviewResultAck>>
+    'advancedSidebar/previewRelease': (request: PreviewReleaseRequest) => Promise<RemoteResult<PreviewReleaseResult>>
     'advancedSidebar/readFile': (request: ReadFileRequest, signal?: AbortSignal) => Promise<RemoteResult<ReadFileResult>>
     'advancedSidebar/taskKill': (request: TaskKillRequest) => Promise<RemoteResult<TaskKillResult>>
     'advancedSidebar/taskOutput': (request: TaskOutputRequest) => Promise<RemoteResult<TaskOutputResult>>

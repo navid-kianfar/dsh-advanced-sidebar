@@ -131,6 +131,25 @@ export interface AdvancedSidebarSettings {
   previewScrollback: number
   /** TERM-to-KILL grace when a preview server is stopped. */
   previewGraceMs: number
+  /**
+   * Largest workspace file a preview mode will hand to the browser, in bytes.
+   *
+   * Separate from `filesMaxPreviewBytes`, which bounds a TEXT preview rendered inside the panel:
+   * this one bounds a media response streamed into a frame, and a video is legitimately far larger
+   * than any file worth reading as text. Past it the panel reports the size and offers
+   * "open with the default application" instead.
+   */
+  readonly previewMaxFileBytes: number
+  /** Wall-clock bound on one proxied upstream request, in milliseconds. */
+  readonly previewProxyTimeoutMs: number
+  /**
+   * How long an agent command waits for the panel to answer before the tool reports a timeout,
+   * in milliseconds. Long enough for a frame load plus an `open`, short enough that a model turn is
+   * not spent waiting on a browser tab that is not there.
+   */
+  readonly previewCommandTimeoutMs: number
+  /** How long a bind is trusted after its last poll before the surface is reported as unmounted. */
+  readonly previewBindTtlMs: number
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -171,6 +190,15 @@ export interface AdvancedSidebarView {
   readonly preview: CapabilityState & {
     /** How many preview servers this plugin currently holds open. */
     readonly running: number
+    /**
+     * Where the same-origin preview routes are, when the Host serves them.
+     *
+     * Absent means no `webServer` capability is mounted, which is the headless case: the Server and
+     * URL modes still work through the frame's own origin, but a workspace file cannot be framed at
+     * all and the agent cannot inspect a cross-origin page. The panel says so rather than offering a
+     * mode that cannot work.
+     */
+    readonly surface?: PreviewSurfaceInfo
   }
   /** Whether a job registry is mounted, and what may be done to a record. */
   readonly tasks: CapabilityState & {
@@ -982,3 +1010,337 @@ export interface PreviewLogsSuccess {
 
 /** Log read, or a classified failure. */
 export type PreviewLogsResult = PreviewLogsSuccess | PreviewFailure
+
+/* --------------------------------------------------------------------------------------------- */
+/* Same-origin preview serving                                                                     */
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * How the browser should present one workspace file.
+ *
+ * The kinds are the browser's own vocabulary on purpose, not MIME types: `iframe` covers HTML,
+ * `markdown` covers a text file this panel renders itself, `image`/`media`/`pdf` are handed
+ * straight to a native element, `text` is shown in the monospace reader, and `other` is the honest
+ * "there is nothing to render here" state that still offers the file's size and its OS application.
+ */
+export type PreviewFileKind = 'iframe' | 'markdown' | 'image' | 'media' | 'pdf' | 'text' | 'other'
+
+/** What one workspace file is, and where it can be framed from. */
+export interface PreviewFileInfo {
+  /** Absolute Host path that was resolved and contained. */
+  readonly path: string
+  /** Basename, for a title. */
+  readonly name: string
+  /** How the browser should present it. */
+  readonly kind: PreviewFileKind
+  /** MIME type for the frame's response, or `text/plain` for a kind that is never framed. */
+  readonly contentType: string
+  /** Size on disk in bytes. */
+  readonly bytes: number
+  /**
+   * Whether the file is small enough for `previewMaxFileBytes`.
+   *
+   * A file over the cap is reported, not refused: the panel shows the size and the OS application,
+   * which is more useful than an error about a limit nobody can see.
+   */
+  readonly withinLimit: boolean
+  /**
+   * Same-origin URL the file can be framed from, when the Host serves files.
+   *
+   * Absent when no `webServer` is mounted; then only the non-framed kinds are offered.
+   */
+  readonly url?: string
+  /**
+   * Opaque token that changes when the file's content or size does.
+   *
+   * The panel re-reads it on a quiet poll and reloads the frame when it moves, which is what makes
+   * an edit on disk show up without a manual refresh. Deliberately not a timestamp: a backend may
+   * not expose one, and a token is the interface `ctx.fs` already offers.
+   */
+  readonly token: string
+  /** True when the file is a regular file; a directory or a socket is reported as `other`. */
+  readonly regular: boolean
+}
+
+/** Why a file could not be described. */
+export type PreviewFileFailureCode =
+  /** No filesystem capability is mounted. */
+  | 'no-filesystem'
+  /** The workspace or the path left the workspace. */
+  | 'path-denied'
+  /** Nothing is at the path, or it is not a regular file. */
+  | 'not-a-file'
+  /** The filesystem refused the metadata read; the message carries its error. */
+  | 'read-failed'
+
+/** A classified file-info failure, carried as a value. */
+export interface PreviewFileFailure {
+  readonly ok: false
+  readonly code: PreviewFileFailureCode
+  readonly message: string
+}
+
+/** File metadata, or a classified failure. */
+export type PreviewFileInfoResult = ({ readonly ok: true } & PreviewFileInfo) | PreviewFileFailure
+
+/** Describe one workspace file for the Preview panel. */
+export interface PreviewFileInfoRequest {
+  /** Absolute Host workspace directory the path must stay inside. */
+  readonly workspacePath: string
+  /** Absolute Host path, or a path relative to the workspace — the panel sends what it has. */
+  readonly path: string
+}
+
+/** Where an agent asked the panel to point itself. */
+export type PreviewRequestedMode = 'server' | 'file' | 'url' | 'scratchpad'
+
+/** Ask one panel: where are you, and can you take a command? */
+export interface PreviewBindRequest {
+  /** Identifies this browser tab, so commands reach the panel that answered last. */
+  readonly clientId: string
+  /** The session whose panel this is. */
+  readonly sessionId: string
+  /** Which mode the panel is showing. */
+  readonly mode: PreviewRequestedMode
+  /** The file being previewed, when the mode is `file`. */
+  readonly filePath?: string
+  /** The absolute workspace every path this panel sends must stay inside. */
+  readonly workspacePath?: string
+  /** What the mode is currently pointing the frame at, when it points anywhere. */
+  readonly url?: string
+  /** True when the frame's document is same-origin with the GUI, so the agent may inspect it. */
+  readonly inspectable: boolean
+  /** Frame viewport height in CSS pixels. */
+  readonly width: number
+  /** Frame viewport height in CSS pixels. */
+  readonly height: number
+}
+
+/** One class of result an agent command can produce. */
+export type PreviewResultKind =
+  | 'open' | 'dom' | 'eval' | 'console' | 'click' | 'input' | 'reload' | 'resize' | 'close'
+
+/** One element of a DOM reading. */
+export interface PreviewDomNode {
+  /** Lower-case tag name. */
+  readonly tag: string
+  /** `id` and `class` as one readable selector fragment, empty when the element has neither. */
+  readonly selector: string
+  /** The element's own direct text, collapsed and cut. */
+  readonly text: string
+  /** Computed `display`. */
+  readonly display: string
+  /** Rendered border box in CSS pixels, relative to the frame's viewport. */
+  readonly box: { x: number; y: number; width: number; height: number }
+  /** Nesting depth below the requested root. */
+  readonly depth: number
+}
+
+/** What one `dom` command answered. */
+export interface PreviewDomResult {
+  readonly kind: 'dom'
+  /** The selector the reading was taken from; empty means the document element. */
+  readonly selector: string
+  /** The frame's inner size in CSS pixels. */
+  readonly viewport: { width: number; height: number }
+  /** Matching elements, breadth-first, capped by the tool's own ceiling. */
+  readonly nodes: readonly PreviewDomNode[]
+  /** The root element's `innerText`, collapsed and cut. */
+  readonly text: string
+  /** True when the cap cut the walk short. */
+  readonly truncated: boolean
+  /** The frame's URL as the browser reports it, so a redirect is visible. */
+  readonly url: string
+}
+
+/** What one `eval` command answered. */
+export interface PreviewEvalResult {
+  readonly kind: 'eval'
+  /**
+   * The expression's value, serialized to JSON.
+   *
+   * A value JSON cannot represent arrives as its `String(value)` — plus a `note` — rather than
+   * failing the command: a DOM node or a function is an ordinary thing to evaluate to, and
+   * `"null"` with no explanation is a worse answer than `"[object HTMLDivElement]"`.
+   */
+  readonly value: string
+  /** Why the value is not JSON, when it is not. */
+  readonly note?: string
+  /** True when the value's JSON form was cut at the tool's ceiling. */
+  readonly truncated: boolean
+}
+
+/** One buffered console line or uncaught error. */
+export interface PreviewConsoleEntry {
+  /** Which sink produced it. */
+  readonly level: 'log' | 'info' | 'warn' | 'error' | 'uncaught' | 'rejection'
+  /** The text, with its arguments joined. */
+  readonly text: string
+  /** Epoch ms, in the frame's own clock. */
+  readonly at: number
+}
+
+/** What one `console` command answered. */
+export interface PreviewConsoleResult {
+  readonly kind: 'console'
+  /** Entries after the requested cursor, oldest first. */
+  readonly entries: readonly PreviewConsoleEntry[]
+  /** Cursor to pass to the next `console` command. */
+  readonly cursor: number
+  /** True when the requested cursor had already fallen out of the retained window. */
+  readonly lossy: boolean
+}
+
+/** What one `reload`/`resize` command answered. */
+export interface PreviewAckResult {
+  readonly kind: 'ack'
+  /** One line describing what happened, for the tool's text block. */
+  readonly detail: string
+  /** The viewport after the command, when it changed one. */
+  readonly width?: number
+  /** The viewport height after the command, when it changed one. */
+  readonly height?: number
+}
+
+/** Every successful command result. */
+export type PreviewCommandResult = PreviewDomResult | PreviewEvalResult | PreviewConsoleResult | PreviewAckResult
+
+/** One command the panel must execute against its frame. */
+export interface PreviewCommand {
+  /** Echo of the request id, which the result must carry back. */
+  readonly id: string
+  /** The panel this command belongs to; a panel ignores a command addressed elsewhere. */
+  readonly clientId: string
+  /** What to do. */
+  readonly kind: PreviewResultKind
+  /** CSS selector for `dom`, `click`, and `type`. */
+  readonly selector?: string
+  /** JavaScript source for `eval`. */
+  readonly expression?: string
+  /** Cursor already consumed by a previous `console`. */
+  readonly cursor?: number
+  /** Text `type` must set before dispatching its events. */
+  readonly text?: string
+  /** Key `type` must dispatch after setting the value, e.g. `Enter`. */
+  readonly key?: string
+  /** Viewport `resize` must apply. */
+  readonly width?: number
+  /** Viewport height `resize` must apply. */
+  readonly height?: number
+  /** How long the panel may spend on it before giving up, in milliseconds. */
+  readonly timeoutMs: number
+}
+
+/** Where an agent asked the panel to point itself, as a control message. */
+export interface PreviewOpenMessage {
+  /** The panel this message belongs to. */
+  readonly clientId: string
+  /** Which mode to show. */
+  readonly mode: PreviewRequestedMode
+  /** Which file to preview, when the mode is `file`. */
+  readonly filePath?: string
+  /** Which URL to point at, when the mode is `url`. */
+  readonly url?: string
+  /** Absolute workspace the file path is relative to. */
+  readonly workspacePath?: string
+}
+
+/** Apply one open request to the panel's own state. */
+export interface PreviewControlMessage {
+  /** Discriminator for the message union. */
+  readonly control: 'open'
+  /** What to open. */
+  readonly open: PreviewOpenMessage
+}
+
+/** Everything the panel must act on after one poll. */
+export interface PreviewMessage {
+  /** Commands to execute, oldest first. */
+  readonly commands: readonly PreviewCommand[]
+  /** Mode changes to apply. */
+  readonly controls: readonly PreviewControlMessage[]
+}
+
+/** Ask for the work queued against one panel. */
+export interface PreviewPollRequest {
+  /** The panel asking. */
+  readonly clientId: string
+  /** The session that panel belongs to. */
+  readonly sessionId: string
+  /** True while a preview is actually mounted; a closed panel stops claiming commands. */
+  readonly mounted: boolean
+  /** What the panel is doing right now. */
+  readonly bind: PreviewBindRequest
+}
+
+/** The panel's next work, or a classified failure. */
+export interface PreviewPollSuccess {
+  readonly ok: true
+  /** The work, possibly empty. */
+  readonly message: PreviewMessage
+  /**
+   * Epoch ms after which this poll's bind is stale.
+   *
+   * The panel echoes nothing back; it simply keeps polling. The Host uses the interval to decide
+   * that a tab was closed or navigated away, which is what makes the agent's next command fail with
+   * "no preview surface" instead of waiting out its timeout.
+   */
+  readonly bindTtlMs: number
+}
+
+/** Why a panel could not be polled. */
+export type PreviewPollFailureCode =
+  /** No preview server capability is mounted, so there is nothing to report. */
+  | 'no-subprocess'
+  /** The plugin is unloading. */
+  | 'closed'
+
+/** A classified poll failure, carried as a value. */
+export interface PreviewPollFailure {
+  readonly ok: false
+  readonly code: PreviewPollFailureCode
+  readonly message: string
+}
+
+/** Poll outcome. */
+export type PreviewPollResult = PreviewPollSuccess | PreviewPollFailure
+
+/** Report what one command did. */
+export interface PreviewResultRequest {
+  /** The panel reporting. */
+  readonly clientId: string
+  /** Echo of {@link PreviewCommand.id}. */
+  readonly id: string
+  /** True when the command was executed. */
+  readonly ok: boolean
+  /** Why it was not, when it was not. */
+  readonly error?: string
+  /** What it produced, when it was. */
+  readonly result?: PreviewCommandResult
+  /** Console entries observed since the panel last reported; appended to the Host's buffer. */
+  readonly console?: readonly PreviewConsoleEntry[]
+}
+
+/** Settlement of a result report. */
+export type PreviewResultAck = { readonly ok: true } | PreviewPollFailure
+
+/** Say that a panel is closed, so its queued work is dropped. */
+export interface PreviewReleaseRequest {
+  /** The panel that closed. */
+  readonly clientId: string
+}
+
+/** Settlement of a release. */
+export type PreviewReleaseResult = { readonly ok: true } | PreviewPollFailure
+
+/** Where the same-origin preview routes live. */
+export interface PreviewSurfaceInfo {
+  /** Absolute path of the workspace-file route, without a trailing slash. */
+  readonly fileRoute: string
+  /** Absolute path prefix of the loopback reverse proxy, without a trailing slash. */
+  readonly proxyRoute: string
+  /** Whether this Host has a `webServer` capability at all. */
+  readonly available: boolean
+  /** Why it does not, when it does not. */
+  readonly reason?: string
+}

@@ -45,8 +45,8 @@ const declared = declaredTokens()
 describe('stylesheets', () => {
   it('ships at least one stylesheet per rendered surface', () => {
     expect(sheets.map(sheet => sheet.file.split('/').pop()).sort()).toEqual([
-      'ActionMenu.module.css', 'PanelHost.module.css', 'Panels.module.css', 'SettingsCard.module.css',
-      'Ui.module.css',
+      'ActionMenu.module.css', 'PanelHost.module.css', 'Panels.module.css', 'Preview.module.css',
+      'SettingsCard.module.css', 'Ui.module.css',
     ])
   })
 

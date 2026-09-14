@@ -17,7 +17,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {
   AdvancedSidebarSettings, AdvancedSidebarView, DeleteSessionResult, GitCommitMessageResult,
   GitCommitResult, GitDiffRequest, GitDiffResult, GitPushResult, GitStageResult,
-  GitStatusResult, ListEntriesResult, PreviewListResult, PreviewLogsResult, PreviewStartResult,
+  GitStatusResult, ListEntriesResult, PreviewFileInfoResult, PreviewListResult, PreviewLogsResult,
+  PreviewPollRequest, PreviewPollResult, PreviewResultAck, PreviewResultRequest,
+  PreviewReleaseResult, PreviewStartResult,
   PreviewStopResult, ReadFileResult, TaskKillResult, TaskOutputResult,
   TerminalAckResult, TerminalOpenResult, TerminalReadResult,
 } from '../host/types.ts'
@@ -239,6 +241,37 @@ export interface PanelHostInjected {
    * @returns the delta and the state, or a classified failure.
    */
   previewLogs: (serverId: string, fromOffset: number) => Promise<PreviewLogsResult>
+  /**
+   * Describe one workspace file for the Preview panel's Files mode.
+   * @param workspacePath - the workspace the path must stay inside.
+   * @param path - the file.
+   * @param signal - cancellation for the reads.
+   * @returns the file's kind, size, same-origin URL, and change token.
+   */
+  previewFileInfo: (
+    workspacePath: string, path: string, signal?: AbortSignal,
+  ) => Promise<PreviewFileInfoResult>
+  /**
+   * Register this panel and take whatever the agent queued for it.
+   *
+   * This is both the poll and the heartbeat: the Host trusts a panel only while it keeps calling,
+   * which is what turns a closed tab into a clear tool failure instead of a wait.
+   * @param request - which panel, where it is, and whether a preview is rendered.
+   * @returns the work to do, or a classified failure.
+   */
+  previewPoll: (request: PreviewPollRequest) => Promise<PreviewPollResult>
+  /**
+   * Report what one agent command did.
+   * @param request - the panel, the command id, and the outcome.
+   * @returns settlement.
+   */
+  previewResult: (request: PreviewResultRequest) => Promise<PreviewResultAck>
+  /**
+   * Say that this panel is gone, so its queued work is dropped.
+   * @param clientId - this panel's id.
+   * @returns settlement.
+   */
+  previewRelease: (clientId: string) => Promise<PreviewReleaseResult>
   /**
    * Open one path with the Host operating system's default application.
    * @param path - the absolute path.

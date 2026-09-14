@@ -82,6 +82,10 @@ const nodeHalf: UserConfig = {
   entry: {
     index: `${TSC_OUT}/index.js`,
     host: `${TSC_OUT}/host/index.js`,
+    // The agent tool is its own entry because it is its own composition row: a deployment can mount
+    // the sidebar without giving a model a verb on it, and the row's `inject` is what orders it
+    // behind the service it calls.
+    'ui-preview': `${TSC_OUT}/ui-preview.js`,
     remote: 'generated/typert.remote-client.js',
     'typert.host': 'generated/typert.host.js',
   },

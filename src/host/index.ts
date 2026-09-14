@@ -35,17 +35,23 @@ import { SessionDeleter } from './deletion.ts'
 import { FileReader } from './files.ts'
 import { GitReader } from './git.ts'
 import { OpenInLauncher } from './open-in.ts'
+import { validateProxyTarget } from './preview-content.ts'
 import { PreviewServers } from './preview.ts'
+import { PROXY_ROUTE, PreviewSurface } from './preview-serve.ts'
 import { PanelTerminals } from './terminals.ts'
 import { TaskController } from './tasks.ts'
+import { PreviewBindings } from './ui-bridge.ts'
+import type { PreviewCommandBody } from './ui-preview-tool.ts'
 import type {
   AdvancedSidebarSettings, AdvancedSidebarView, DeleteSessionRequest, DeleteSessionResult,
   GitCommitMessageRequest, GitCommitMessageResult, GitCommitRequest, GitCommitResult,
   GitDiffRequest, GitDiffResult, GitPushRequest, GitPushResult, GitStageRequest,
   GitStageResult, GitStatusRequest, GitStatusResult, ListEntriesRequest,
-  ListEntriesResult, OpenInRequest, OpenInResult, PreviewListRequest, PreviewListResult,
-  PreviewLogsRequest, PreviewLogsResult, PreviewStartRequest, PreviewStartResult,
-  PreviewStopRequest, PreviewStopResult,
+  ListEntriesResult, OpenInRequest, OpenInResult, PreviewBindRequest, PreviewCommandResult,
+  PreviewFileInfoRequest, PreviewFileInfoResult, PreviewFileKind, PreviewListRequest,
+  PreviewListResult, PreviewLogsRequest, PreviewLogsResult, PreviewPollRequest, PreviewPollResult,
+  PreviewReleaseRequest, PreviewReleaseResult, PreviewResultAck, PreviewResultRequest,
+  PreviewStartRequest, PreviewStartResult, PreviewStopRequest, PreviewStopResult,
   ReadFileRequest, ReadFileResult, TaskKillRequest, TaskKillResult, TaskOutputRequest,
   TaskOutputResult, TerminalAckResult, TerminalCloseRequest, TerminalOpenRequest,
   TerminalOpenResult, TerminalReadRequest, TerminalReadResult, TerminalSignalRequest,
@@ -184,6 +190,10 @@ export class AdvancedSidebarService extends TypertRemoteService {
     previewReadyTimeoutMs: z.number().step(1).min(1_000).max(600_000).required(),
     previewScrollback: z.number().step(1).min(1_024).max(4 * 1_024 * 1_024).required(),
     previewGraceMs: z.number().step(1).min(100).max(60_000).required(),
+    previewMaxFileBytes: z.number().step(1).min(1_024).max(512 * 1_024 * 1_024).required(),
+    previewProxyTimeoutMs: z.number().step(1).min(1_000).max(600_000).required(),
+    previewCommandTimeoutMs: z.number().step(1).min(1_000).max(600_000).required(),
+    previewBindTtlMs: z.number().step(1).min(1_000).max(120_000).required(),
   })
 
   private source: () => Config
@@ -195,6 +205,8 @@ export class AdvancedSidebarService extends TypertRemoteService {
   private readonly tasks: TaskController
   private readonly deleter: SessionDeleter
   private readonly preview: PreviewServers
+  private readonly surface: PreviewSurface
+  private readonly bindings: PreviewBindings
 
   /**
    * @param ctx - Host context; every capability this service uses is resolved optionally, so a
@@ -214,6 +226,17 @@ export class AdvancedSidebarService extends TypertRemoteService {
     this.tasks = new TaskController(ctx, read)
     this.deleter = new SessionDeleter(ctx, read)
     this.preview = new PreviewServers(ctx, read)
+    this.surface = new PreviewSurface(ctx, read)
+    this.bindings = new PreviewBindings(() => {
+      const settings = this.source()
+      return {
+        commandTimeoutMs: settings.previewCommandTimeoutMs,
+        bindTtlMs: settings.previewBindTtlMs,
+      }
+    })
+    // The routes are registered through the surface's own `ctx.inject(['webServer'], …)`, so a
+    // headless deployment composes no route and needs no branch here.
+    this.surface.install()
 
     installSettingsSection(ctx, ADVANCED_SIDEBAR_SETTINGS_NAMESPACE, AdvancedSidebarService.Config, config, {
       setSource: (current) => { this.source = current },
@@ -229,6 +252,8 @@ export class AdvancedSidebarService extends TypertRemoteService {
     // escalation bounds how long that takes.
     ctx.effect(() => async () => {
       this.tasks.dispose()
+      this.bindings.dispose()
+      this.surface.dispose()
       await Promise.all([this.terminals.disposeAll(), this.preview.disposeAll()])
     }, 'advanced-sidebar: panel terminals, preview servers, retained task output')
   }
@@ -247,7 +272,7 @@ export class AdvancedSidebarService extends TypertRemoteService {
       git: await this.git.describe(signal),
       terminal: this.terminals.describe(),
       files: this.files.describe(),
-      preview: this.preview.describe(),
+      preview: { ...this.preview.describe(), surface: this.surface.info() },
       tasks: this.tasks.describe(),
       openIn: await this.launcher.describe(signal),
       settings,
@@ -446,6 +471,76 @@ export class AdvancedSidebarService extends TypertRemoteService {
   }
 
   /**
+   * Describe one workspace file for the Preview panel's Files mode.
+   *
+   * Separate from `readFile`, which returns text for the Files panel's reader: a preview needs the
+   * kind, the size, the same-origin URL, and a change token, and it must not pull a 200 MB video
+   * through the wire to find out what it is.
+   * @param request - the workspace and the file inside it.
+   * @param signal - gateway-supplied cancellation for the resolution and metadata reads.
+   * @returns the file's kind and frame URL, or a classified failure.
+   */
+  @Remote('previewFileInfo')
+  previewFileInfo(
+    request: PreviewFileInfoRequest, signal: AbortSignal,
+  ): Promise<PreviewFileInfoResult> {
+    return this.surface.info_(request.workspacePath, request.path, signal)
+  }
+
+  /**
+   * Register one Preview panel and take whatever the agent queued for it.
+   *
+   * This is the polling half of the agent channel: the browser calls it while a preview is mounted,
+   * the call is the panel's liveness heartbeat, and its answer carries the commands to execute.
+   * @param request - which panel, where it is, and whether a preview is actually rendered.
+   * @returns the work to do, or a classified failure.
+   */
+  @Remote('previewPoll')
+  previewPoll(request: PreviewPollRequest): Promise<PreviewPollResult> {
+    if (request.mounted) this.bindings.bind(request.bind)
+    // A mounted poll always binds; a poll from a dock that has not rendered a preview yet may be
+    // the first thing this Host hears from a tab, which is what lets a tool call wake it.
+    else this.bindings.bindAt(request.bind)
+    // The surface is told what the panel is framing so a subresource request the frame makes with no
+    // target of its own can still be placed.
+    this.surface.rememberTarget(request.clientId, request.bind.inspectable ? request.bind.url : undefined)
+    const polled = this.bindings.poll(request.clientId, request.mounted)
+    return Promise.resolve({ ok: true, message: polled.message, bindTtlMs: polled.bindTtlMs })
+  }
+
+  /**
+   * Record what one command did.
+   * @param request - the panel, the command id, and the outcome.
+   * @returns settlement.
+   */
+  @Remote('previewResult')
+  previewResult(request: PreviewResultRequest): Promise<PreviewResultAck> {
+    this.bindings.post(
+      request.clientId,
+      request.id,
+      request.ok
+        ? request.result === undefined
+          ? { ok: false, error: 'the panel reported success without a result' }
+          : { ok: true, result: request.result }
+        : { ok: false, error: request.error ?? 'the panel reported a failure with no reason' },
+      request.console ?? [],
+    )
+    return Promise.resolve({ ok: true })
+  }
+
+  /**
+   * Say that one panel is gone, so its queued work is dropped and its waits fail now.
+   * @param request - the panel that closed.
+   * @returns settlement.
+   */
+  @Remote('previewRelease')
+  previewRelease(request: PreviewReleaseRequest): Promise<PreviewReleaseResult> {
+    this.bindings.release(request.clientId)
+    this.surface.rememberTarget(request.clientId, undefined)
+    return Promise.resolve({ ok: true })
+  }
+
+  /**
    * Read one file for the Files panel preview.
    * @param request - the file and the workspace it must stay inside.
    * @param signal - gateway-supplied cancellation for the caller's abandoned request.
@@ -497,6 +592,135 @@ export class AdvancedSidebarService extends TypertRemoteService {
   deleteSession(request: DeleteSessionRequest, signal: AbortSignal): Promise<DeleteSessionResult> {
     return this.deleter.delete(request, signal)
   }
+
+  /* ------------------------------------------------------------------------------------------- */
+  /* The agent's own surface (ui_preview). In-process, not Remote: the tool holds this service.   */
+  /* ------------------------------------------------------------------------------------------- */
+
+  /**
+   * Queue one command against the session's Preview panel and wait for its answer.
+   * @param sessionId - the session whose panel should execute it.
+   * @param body - the command, without its id, panel, or deadline.
+   * @returns the result, or a sentence explaining why there is none.
+   */
+  queueCommand(
+    sessionId: string, body: PreviewCommandBody,
+  ): Promise<{ ok: true; result: PreviewCommandResult } | { ok: false; message: string }> {
+    return this.bindings.queue(sessionId, {
+      ...body,
+      timeoutMs: this.source().previewCommandTimeoutMs,
+    })
+  }
+
+  /**
+   * Point the session's panel at a URL.
+   *
+   * The panel decides for itself how to frame it — a loopback URL goes through this Host's proxy and
+   * becomes inspectable, anything else is framed cross-origin and is not — so the answer says which
+   * happened rather than the tool guessing.
+   * @param sessionId - the session whose panel should show it.
+   * @param url - the absolute `http(s)` URL, already validated by the caller.
+   * @param waitMs - how long the panel may take to mount and load.
+   * @returns the outcome and what the panel is now framing.
+   */
+  async openUrl(
+    sessionId: string, url: string, waitMs: number,
+  ): Promise<
+    | { ok: true; message: string; detail: Record<string, unknown> }
+    | { ok: false; message: string }
+  > {
+    const clientId = this.bindings.active(sessionId)
+    if (clientId === undefined) return { ok: false, message: NO_SURFACE }
+    if (!this.bindings.control(clientId, { control: 'open', open: { clientId, mode: 'url', url } })) {
+      return { ok: false, message: NO_SURFACE }
+    }
+    const sameOrigin = validateProxyTarget(url).ok
+    const outcome = await this.bindings.send(clientId, { kind: 'open', timeoutMs: waitMs })
+    if (!outcome.ok) return { ok: false, message: outcome.message }
+    return {
+      ok: true,
+      message: sameOrigin
+        ? `The Preview panel is loading ${url} through this Host's same-origin proxy, so its DOM, `
+          + 'console and events are all inspectable.'
+        : `The Preview panel is showing ${url}. It is not a loopback URL, so the frame stays `
+          + 'cross-origin and cannot be inspected: dom, eval, click and type will refuse it.',
+      detail: {
+        url,
+        inspectable: sameOrigin,
+        ...sameOrigin ? { proxyRoute: PROXY_ROUTE } : {},
+      },
+    }
+  }
+
+  /**
+   * Point the session's panel at one workspace file.
+   * @param request - the session, the workspace, the file, its kind, and the wait budget.
+   * @returns the outcome and where the panel is now framed from.
+   */
+  async openFile(request: {
+    sessionId: string
+    workspacePath: string
+    filePath: string
+    kind: PreviewFileKind
+    waitMs: number
+  }): Promise<
+    | { ok: true; message: string; detail: Record<string, unknown> }
+    | { ok: false; message: string }
+  > {
+    const clientId = this.bindings.active(request.sessionId)
+    if (clientId === undefined) return { ok: false, message: NO_SURFACE }
+    if (!this.bindings.control(clientId, {
+      control: 'open',
+      open: {
+        clientId,
+        mode: 'file',
+        filePath: request.filePath,
+        workspacePath: request.workspacePath,
+      },
+    })) {
+      return { ok: false, message: NO_SURFACE }
+    }
+    const framed = this.surface.info().available
+    if (request.kind !== 'iframe' && request.kind !== 'markdown' && !framed) {
+      return {
+        ok: false,
+        message: `${request.filePath} is a ${request.kind} file, and this Host composes no web server, `
+          + 'so there is no same-origin URL to frame it from',
+      }
+    }
+    const outcome = await this.bindings.send(clientId, { kind: 'open', timeoutMs: request.waitMs })
+    if (!outcome.ok) return { ok: false, message: outcome.message }
+    const url = this.surface.fileUrl(request.workspacePath, request.filePath)
+    return {
+      ok: true,
+      message: `The Preview panel is showing ${request.filePath} (${request.kind})`
+        + `${request.kind === 'iframe' ? ' as a live document' : ''}; its DOM is same-origin and inspectable.`,
+      detail: {
+        path: request.filePath,
+        kind: request.kind,
+        ...url === undefined ? {} : { url },
+      },
+    }
+  }
+
+  /**
+   * Read one workspace file's preview description, for the tool's own `open` validation.
+   * @param request - the workspace and the file.
+   * @param signal - cancellation for the reads.
+   * @returns the description, or a classified failure.
+   */
+  describeFile(request: PreviewFileInfoRequest, signal?: AbortSignal): Promise<PreviewFileInfoResult> {
+    return this.surface.info_(request.workspacePath, request.path, signal)
+  }
 }
+
+/**
+ * The refusal a tool call gets when no Preview panel is open in its session.
+ *
+ * A constant rather than a method: it is the same sentence for every action, and a model that reads
+ * it twice should read the same thing twice.
+ */
+const NO_SURFACE = 'no Preview panel is open in this session, so there is nothing to inspect. Open '
+  + 'the Preview panel first (the session header\'s Preview entry), then call this tool again.'
 
 export default AdvancedSidebarService

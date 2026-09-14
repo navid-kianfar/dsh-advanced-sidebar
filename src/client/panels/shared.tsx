@@ -5,8 +5,9 @@
  */
 
 import { useEffect, useRef } from 'react'
-import type { PanelHostInjected, Translate } from '../contract.ts'
+import type { Translate } from '../contract.ts'
 import type { OperationTarget } from '../controller.ts'
+import type { PanelFace } from '../preview-types.ts'
 import css from './Panels.module.css'
 
 /** What every panel is handed by the dock. */
@@ -20,7 +21,7 @@ export interface PanelProps {
    * that with bound `use<Name>` selector props before the dock is rendered, so no panel ever sees
    * the sources themselves.
    */
-  face: Omit<PanelHostInjected, 'hooks'>
+  face: PanelFace
 }
 
 /** Binary size units, largest last so the loop can stop at the first that fits. */
@@ -98,4 +99,19 @@ export function useLatest<T>(value: T): { readonly current: T } {
  */
 export function transportMessage(reason: unknown, t: Translate): string {
   return t('error.transport', { message: reason instanceof Error ? reason.message : String(reason) })
+}
+
+/**
+ * Join a typed path against the workspace unless it is already absolute.
+ *
+ * The Host proves containment either way — this is not a containment check — so the join only saves
+ * a person from typing a long prefix. It is deliberately string arithmetic rather than a resolution:
+ * the Host is the authority on what a path means, and a browser-side `..` walk would be a second,
+ * weaker copy of that rule.
+ * @param workspace - the absolute workspace directory.
+ * @param path - the typed path.
+ * @returns the absolute candidate the Host will resolve and contain.
+ */
+export function absoluteIn(workspace: string, path: string): string {
+  return path.startsWith('/') ? path : `${workspace.replace(/\/$/u, '')}/${path}`
 }
