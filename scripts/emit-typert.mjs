@@ -11,7 +11,7 @@
  *
  * Usage: node scripts/emit-typert.mjs
  */
-import { writeFile, mkdir } from 'node:fs/promises'
+import { writeFile, mkdir, readFile } from 'node:fs/promises'
 import { Buffer } from 'node:buffer'
 import { fileURLToPath } from 'node:url'
 import { FINGERPRINT_FILE, fingerprint } from './typert-fingerprint.mjs'
@@ -277,10 +277,10 @@ const previewSurfaceInfo = `z.object({
   'reason': z.string().readonly().optional(),
 })`
 
-/** method -> { params: [{name, wire, type, schema}], cancellation, result: {type, schema}, line } */
+/** method -> { params: [{name, wire, type, schema}], cancellation, result: {type, schema} } */
 const ENDPOINTS = [
   {
-    method: 'deleteSession', line: 464,
+    method: 'deleteSession',
     params: [{ name: 'request', wire: 'request', type: 'DeleteSessionRequest', schema: `z.object({
   'sessionId': z.string().readonly(),
 })` }],
@@ -298,7 +298,7 @@ const ENDPOINTS = [
 })])` },
   },
   {
-    method: 'describe', line: 234,
+    method: 'describe',
     params: [],
     cancellation: true,
     result: { type: 'AdvancedSidebarView', schema: `z.object({
@@ -335,7 +335,7 @@ const ENDPOINTS = [
 })` },
   },
   {
-    method: 'gitDiff', line: 274,
+    method: 'gitDiff',
     params: [{ name: 'request', wire: 'request', type: 'GitDiffRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
   'path': z.string().readonly(),
@@ -352,7 +352,7 @@ const ENDPOINTS = [
 }), ${gitFailure}])` },
   },
   {
-    method: 'gitStatus', line: 263,
+    method: 'gitStatus',
     params: [{ name: 'request', wire: 'request', type: 'GitStatusRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
 })` }],
@@ -360,7 +360,7 @@ const ENDPOINTS = [
     result: { type: 'GitStatusResult', schema: `z.union([${gitStatusSuccess}, ${gitFailure}])` },
   },
   {
-    method: 'gitStage', line: 285,
+    method: 'gitStage',
     params: [{ name: 'request', wire: 'request', type: 'GitStageRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
   'paths': z.array(z.string()).readonly(),
@@ -372,7 +372,7 @@ const ENDPOINTS = [
 }), ${gitFailure}])` },
   },
   {
-    method: 'gitUnstage', line: 296,
+    method: 'gitUnstage',
     params: [{ name: 'request', wire: 'request', type: 'GitStageRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
   'paths': z.array(z.string()).readonly(),
@@ -384,7 +384,7 @@ const ENDPOINTS = [
 }), ${gitFailure}])` },
   },
   {
-    method: 'gitCommit', line: 307,
+    method: 'gitCommit',
     params: [{ name: 'request', wire: 'request', type: 'GitCommitRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
   'message': z.string().readonly(),
@@ -400,7 +400,7 @@ const ENDPOINTS = [
 }), ${gitFailure}])` },
   },
   {
-    method: 'gitPush', line: 320,
+    method: 'gitPush',
     params: [{ name: 'request', wire: 'request', type: 'GitPushRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
   'setUpstream': z.boolean().readonly(),
@@ -416,7 +416,7 @@ const ENDPOINTS = [
 }), ${gitFailure}])` },
   },
   {
-    method: 'gitCommitMessage', line: 333,
+    method: 'gitCommitMessage',
     params: [{ name: 'request', wire: 'request', type: 'GitCommitMessageRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
   'amend': z.boolean().readonly(),
@@ -430,7 +430,7 @@ const ENDPOINTS = [
 }), ${gitFailure}])` },
   },
   {
-    method: 'listEntries', line: 369,
+    method: 'listEntries',
     params: [{ name: 'request', wire: 'request', type: 'ListEntriesRequest', schema: `z.object({
   'path': z.string().readonly(),
   'workspacePath': z.string().readonly(),
@@ -450,7 +450,7 @@ const ENDPOINTS = [
 }), ${readFileFailure}])` },
   },
   {
-    method: 'openIn', line: 433,
+    method: 'openIn',
     params: [{ name: 'request', wire: 'request', type: 'OpenInRequest', schema: `z.object({
   'targetId': z.string().readonly(),
   'path': z.string().readonly(),
@@ -465,7 +465,7 @@ const ENDPOINTS = [
 })])` },
   },
   {
-    method: 'previewList', line: 380,
+    method: 'previewList',
     params: [{ name: 'request', wire: 'request', type: 'PreviewListRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
 })` }],
@@ -478,7 +478,7 @@ const ENDPOINTS = [
 }), ${previewFailure}])` },
   },
   {
-    method: 'previewLogs', line: 411,
+    method: 'previewLogs',
     params: [{ name: 'request', wire: 'request', type: 'PreviewLogsRequest', schema: `z.object({
   'serverId': z.string().readonly(),
   'fromOffset': z.number().readonly(),
@@ -494,7 +494,7 @@ const ENDPOINTS = [
 }), ${previewFailure}])` },
   },
   {
-    method: 'previewStart', line: 391,
+    method: 'previewStart',
     params: [{ name: 'request', wire: 'request', type: 'PreviewStartRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
   'name': z.string().readonly(),
@@ -506,7 +506,7 @@ const ENDPOINTS = [
 }), ${previewFailure}])` },
   },
   {
-    method: 'previewStop', line: 401,
+    method: 'previewStop',
     params: [{ name: 'request', wire: 'request', type: 'PreviewStopRequest', schema: `z.object({
   'serverId': z.string().readonly(),
 })` }],
@@ -516,7 +516,7 @@ const ENDPOINTS = [
 }), ${previewFailure}])` },
   },
   {
-    method: 'previewFileInfo', line: 0,
+    method: 'previewFileInfo',
     params: [{ name: 'request', wire: 'request', type: 'PreviewFileInfoRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
   'path': z.string().readonly(),
@@ -528,7 +528,7 @@ ${previewFileInfoFields}
 }), ${previewFileFailure}])` },
   },
   {
-    method: 'previewPoll', line: 0,
+    method: 'previewPoll',
     params: [{ name: 'request', wire: 'request', type: 'PreviewPollRequest', schema: `z.object({
   'clientId': z.string().readonly(),
   'sessionId': z.string().readonly(),
@@ -543,7 +543,7 @@ ${previewFileInfoFields}
 }), ${previewPollFailure}])` },
   },
   {
-    method: 'previewResult', line: 0,
+    method: 'previewResult',
     params: [{ name: 'request', wire: 'request', type: 'PreviewResultRequest', schema: `z.object({
   'clientId': z.string().readonly(),
   'id': z.string().readonly(),
@@ -558,7 +558,7 @@ ${previewFileInfoFields}
 }), ${previewPollFailure}])` },
   },
   {
-    method: 'previewRelease', line: 0,
+    method: 'previewRelease',
     params: [{ name: 'request', wire: 'request', type: 'PreviewReleaseRequest', schema: `z.object({
   'clientId': z.string().readonly(),
 })` }],
@@ -568,7 +568,7 @@ ${previewFileInfoFields}
 }), ${previewPollFailure}])` },
   },
   {
-    method: 'readFile', line: 422,
+    method: 'readFile',
     params: [{ name: 'request', wire: 'request', type: 'ReadFileRequest', schema: `z.object({
   'path': z.string().readonly(),
   'workspacePath': z.string().readonly(),
@@ -584,7 +584,7 @@ ${previewFileInfoFields}
 }), ${readFileFailure}])` },
   },
   {
-    method: 'taskKill', line: 443,
+    method: 'taskKill',
     params: [{ name: 'request', wire: 'request', type: 'TaskKillRequest', schema: `z.object({
   'sessionId': z.string().readonly(),
   'taskId': z.string().readonly(),
@@ -596,7 +596,7 @@ ${previewFileInfoFields}
 }), ${taskFailure}])` },
   },
   {
-    method: 'taskOutput', line: 453,
+    method: 'taskOutput',
     params: [{ name: 'request', wire: 'request', type: 'TaskOutputRequest', schema: `z.object({
   'sessionId': z.string().readonly(),
   'taskId': z.string().readonly(),
@@ -611,7 +611,7 @@ ${previewFileInfoFields}
 }), ${taskFailure}])` },
   },
   {
-    method: 'terminalClose', line: 358,
+    method: 'terminalClose',
     params: [{ name: 'request', wire: 'request', type: 'TerminalCloseRequest', schema: `z.object({
   'terminalId': z.string().readonly(),
 })` }],
@@ -621,7 +621,7 @@ ${previewFileInfoFields}
 }), ${terminalFailure}])` },
   },
   {
-    method: 'terminalOpen', line: 318,
+    method: 'terminalOpen',
     params: [{ name: 'request', wire: 'request', type: 'TerminalOpenRequest', schema: `z.object({
   'workspacePath': z.string().readonly(),
   'cols': z.number().readonly(),
@@ -637,7 +637,7 @@ ${previewFileInfoFields}
 }), ${terminalFailure}])` },
   },
   {
-    method: 'terminalRead', line: 328,
+    method: 'terminalRead',
     params: [{ name: 'request', wire: 'request', type: 'TerminalReadRequest', schema: `z.object({
   'terminalId': z.string().readonly(),
   'fromOffset': z.number().readonly(),
@@ -655,7 +655,7 @@ ${previewFileInfoFields}
 }), ${terminalFailure}])` },
   },
   {
-    method: 'terminalSignal', line: 348,
+    method: 'terminalSignal',
     params: [{ name: 'request', wire: 'request', type: 'TerminalSignalRequest', schema: `z.object({
   'terminalId': z.string().readonly(),
   'signal': ${u('SIGINT','SIGTERM','SIGKILL','SIGTSTP','SIGHUP')}.readonly(),
@@ -666,7 +666,7 @@ ${previewFileInfoFields}
 }), ${terminalFailure}])` },
   },
   {
-    method: 'terminalWrite', line: 338,
+    method: 'terminalWrite',
     params: [{ name: 'request', wire: 'request', type: 'TerminalWriteRequest', schema: `z.object({
   'terminalId': z.string().readonly(),
   'data': z.string().readonly(),
@@ -677,6 +677,30 @@ ${previewFileInfoFields}
 }), ${terminalFailure}])` },
   },
 ]
+
+/**
+ * Line of every `@Remote(...)` decorator in `src/host/index.ts` — the line a Typert
+ * `sourceLocation` points at. Read from the source rather than recorded beside each endpoint: a
+ * hand-written line number goes stale without anything noticing, and a Host loader refuses an
+ * artifact whose `line` is not a positive integer, which turns that staleness into a boot failure.
+ */
+const hostSource = await readFile(`${ROOT}${SRC}`, 'utf8')
+const remoteLines = new Map(hostSource.split('\n').flatMap((text, index) => {
+  const match = /@Remote\('([^']+)'\)/.exec(text)
+  return match === null ? [] : [[match[1], index + 1]]
+}))
+
+/**
+ * Resolve one endpoint's line in `src/host/index.ts`.
+ * @param method - the endpoint's method name.
+ * @returns the 1-based line of its `@Remote` decorator.
+ * @throws when the Host declares no such endpoint, which means this spec has drifted from it.
+ */
+function sourceLine(method) {
+  const line = remoteLines.get(method)
+  if (line === undefined) throw new Error(`typert: no @Remote('${method}') in ${SRC} — update this spec to match the Host`)
+  return line
+}
 
 const constName = (method, suffix) => `${prefix}_${NS}_${method}_${suffix}$schema`
 
@@ -717,7 +741,7 @@ ${endpoint.cancellation ? "      cancellation: { parameter: 'signal' },\n" : ''}
         typeSymbol: '${TYPES}#${endpoint.result.type}',
         schema: ${constName(endpoint.method, 'result')},
       },
-      sourceLocation: {"file":"${SRC}","line":${endpoint.line},"column":3},
+      sourceLocation: {"file":"${SRC}","line":${sourceLine(endpoint.method)},"column":3},
     },`
   }).join('\n')
 }

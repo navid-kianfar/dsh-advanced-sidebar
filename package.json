@@ -72,6 +72,7 @@
     "@deepseek-ai/dsh-session-persistence": "*",
     "@deepseek-ai/dsh-settings": "*",
     "@deepseek-ai/dsh-subprocess": "*",
+    "@deepseek-ai/dsh-tools": "*",
     "@deepseek-ai/dsh-typert-protocol": "*",
     "@deepseek-ai/dsh-workspace": "*",
     "@deepseek-ai/schemastery": "*"

@@ -63,6 +63,9 @@ importers:
       '@deepseek-ai/dsh-fs':
         specifier: link:../../deepseek-harness/packages/fs/fs
         version: link:../../deepseek-harness/packages/fs/fs
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: link:../../deepseek-harness/packages/host/webserver
+        version: link:../../deepseek-harness/packages/host/webserver
       '@deepseek-ai/dsh-jobs':
         specifier: link:../../deepseek-harness/packages/jobs/jobs
         version: link:../../deepseek-harness/packages/jobs/jobs
@@ -81,6 +84,9 @@ importers:
       '@deepseek-ai/dsh-subprocess':
         specifier: link:../../deepseek-harness/packages/subprocess/subprocess
         version: link:../../deepseek-harness/packages/subprocess/subprocess
+      '@deepseek-ai/dsh-tools':
+        specifier: link:../../deepseek-harness/packages/core/tools
+        version: link:../../deepseek-harness/packages/core/tools
       '@deepseek-ai/dsh-typert-protocol':
         specifier: link:../../deepseek-harness/packages/typert/protocol
         version: link:../../deepseek-harness/packages/typert/protocol
