@@ -160,7 +160,7 @@ export class AdvancedSidebarService extends TypertRemoteService {
     showArchive: z.boolean().required(),
     showDelete: z.boolean().required(),
     showPreview: z.boolean().required(),
-    panelWidth: z.number().step(1).min(280).max(1_400).required(),
+    panelWidth: z.number().step(1).min(280).max(960).required(),
     confirmDelete: z.boolean().required(),
     deleteMode: z.union(['archive', 'purge'] as const).required(),
     allowTaskKill: z.boolean().required(),

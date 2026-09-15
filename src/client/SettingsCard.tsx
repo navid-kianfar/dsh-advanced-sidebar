@@ -218,7 +218,7 @@ export function SettingsCard(props: SettingsCardProps) {
               <div className={css.groupHead}>
                 <span className={css.groupTitle}>{t('settings.group.limits')}</span>
               </div>
-              {number('panelWidth', t('settings.panelWidth'), t('settings.panelWidth.hint'), value.panelWidth, 280, 1_400)}
+              {number('panelWidth', t('settings.panelWidth'), t('settings.panelWidth.hint'), value.panelWidth, 280, 960)}
               {number('gitMaxFiles', t('settings.gitMaxFiles'), t('settings.gitMaxFiles.hint'), value.gitMaxFiles, 1, 10_000)}
               {number('gitTimeoutMs', t('settings.gitTimeoutMs'), t('settings.gitTimeoutMs.hint'), value.gitTimeoutMs, 1_000, 600_000)}
               {number('gitCommitTimeoutMs', t('settings.gitCommitTimeoutMs'), t('settings.gitCommitTimeoutMs.hint'), value.gitCommitTimeoutMs, 1_000, 1_800_000)}

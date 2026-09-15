@@ -155,7 +155,7 @@
 
 /* --- Open in roster --- */
 
-/* Read-only on purpose: the target list is deployment configuration, edited in cordis.yml where a
+/* Read-only on purpose: the target list is deployment configuration, edited in cordis.patch.yml where a
    command and its arguments can be written properly. What the card adds is the one fact the file
    cannot state — whether each command resolves on THIS Host. */
 .targets {

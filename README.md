@@ -1,443 +1,355 @@
 # @achasoft/dsh-advanced-sidebar
 
-Advanced sidebar operations for the DeepSeek Harness Web Client: **Changes**, **Terminal**, **Files**, **Preview**, **Background tasks**, **Open in**, **Archive**, and **Delete**, reachable from one menu in the open session's header and shown in a **resizable dock** beside the conversation.
+A session menu and a resizable side dock for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) Web Client. The **⋯** menu in the session header opens these panels in a column to the right of the conversation:
 
-Everything the browser can already do goes through the Web Client's own capabilities. Everything it structurally cannot — running `git`, allocating a pseudo-terminal, launching an editor, stopping a background task, removing a session log — goes through this plugin's own Typert Remote namespace, `ctx.remote.advancedSidebar`.
+- **Changes**: git status, diffs, staging, commit, a model-written commit message, and push;
+- **Terminal**: your own shells, in tabs;
+- **Files**: a file browser with text preview;
+- **Preview**: dev servers, workspace files, URLs, or a scratchpad;
+- **Background tasks**: the session's jobs.
 
-Nothing here is model-facing except **one tool**, `ui_preview`, which drives the Preview panel on the agent's behalf; see [Driving the UI from the agent](#driving-the-ui-from-the-agent). Everything else is a person's own surface.
+The same menu has **Open in**, **Download session log**, **Archive**, and **Delete**. Work the browser cannot do itself (running git, opening a pseudo-terminal, launching an editor) runs on the host through this plugin's own RPC namespace. One optional model tool, `ui_preview`, lets the agent inspect and drive the Preview panel.
 
-## Install
+![The dock open beside the conversation, showing the Changes panel with staged and unstaged files, a diff, and the commit box](https://raw.githubusercontent.com/navid-kianfar/dsh-advanced-sidebar/main/docs/screenshots/dock-changes.png)
 
-```sh
-dsh plugin --profile web add /abs/path/to/dsh-advanced-sidebar
-dsh web
-```
+## Features
 
-From a harness source checkout instead:
+### Session menu
 
-```sh
-pnpm dsh plugin --profile web add ../dsh-plugins/dsh-advanced-sidebar
-pnpm dsh web
-```
+A **⋯** button in the open session's header. It acts on that session, using the session's own working directory, or its workspace path when the session has none.
 
-Build the plugin first (`pnpm install && pnpm run build`); the Web Client refuses to start when a composed plugin has no built `lib/client.js`.
+| Entry | What it does |
+| --- | --- |
+| Changes, Terminal, Files, Preview, Background tasks | Opens that panel in the dock. The open panel's entry has a check mark, and choosing it again closes the dock. |
+| Open in ▸ | **New window** (a second tab of the Web Client), each configured editor, and the OS file manager: Finder, File Explorer, or `xdg-open` on Linux. |
+| Download session log | Exports the session as a ZIP through the harness's own exporter. See the note below. |
+| Archive | Hides the session. Its log stays on disk. |
+| Delete | Asks for confirmation, then archives. See [Known limitations](#known-limitations). |
 
-## The menu
+When the host cannot serve an entry (git not installed, an editor command not found, no subprocess capability), the entry stays in the menu, disabled, with the reason next to it. An entry switched off in settings is not shown at all. The menu asks the host again each time it opens, so installing git or an editor shows up without a restart.
 
-The menu has one seat: the session header's utilities row. It acts on the session it sits in.
+**Download session log.** The harness package `@deepseek-ai/dsh-session-log-export` adds its own **⋯** button, with that single entry, to the same header row. This plugin hides that button: it registers an entry with the same id (`session-log-download`) at priority `-1`, and moves the entry into its own menu. Exporting still uses the harness's controller and dialog, so `/export` keeps working. If the harness package is absent or its controller has a different shape, nothing is hidden and the menu has no Download entry.
 
-| Entry | What it opens | What it needs on the Host |
-|---|---|---|
-| Changes | Uncommitted changes in the session's working directory, each file's patch, staging, commit, a model-written commit message, and push | `git` on PATH, `ctx.subprocess`, `ctx.fs`, and `ctx.llm` + `ctx.agentDefaultModel` for the message |
-| Terminal | Interactive shells of your own, on a tab strip, in that directory | `ctx.subprocess`, `ctx.fs` |
-| Files | That directory, one level at a time, with a text preview | `ctx.fs` |
-| Preview | Four ways to look at something: the workspace's dev server, any workspace file, any URL, or a scratchpad document — plus the same-origin routes and the agent tool that make a framed page inspectable | `ctx.subprocess`, `ctx.fs`, `ctx.webServer` for the same-origin routes, `ctx.tools` for `ui_preview` |
-| Background tasks | This session's `ctx.jobs` records, with Stop and the output of a settled one | `ctx.jobs` |
-| Open in ▸ | A second browser window, a configured editor, or the operating system's file manager | `ctx.subprocess` for the editors |
-| Archive | Hides the session; its log and its accounting slot remain | `ctx.workspaceRegistry` |
-| Delete | Archives the session; `purge` (removing the log) is unavailable on this harness and says so | `ctx.workspaceRegistry` |
+![Session header ⋯ menu open: the panel entries, the Open in submenu, Download session log, Archive, and Delete](https://raw.githubusercontent.com/navid-kianfar/dsh-advanced-sidebar/main/docs/screenshots/session-menu.png)
 
-An entry whose capability is missing is **disabled with the reason beside it** rather than hidden, so a mistyped `command` or an uninstalled `git` is visible instead of silent. An entry switched off in settings is absent entirely. The entry of the panel currently in the dock carries a check, so choosing it again reads as the toggle it is.
+### The dock
 
-The target of every entry is the session's own `cwd`, falling back to its Workspace path. A session started in a subdirectory therefore works there, rather than at a repository root the model is not using.
+Panels open in a column on the right of the app frame. The conversation narrows to make room, so the dock does not cover it.
 
-## The dock
+- **Resizing.** Drag the left edge, use Left and Right on the focused handle, or double-click the handle to return to the configured width.
+- **Width limits.** The width is kept between 280 px and 960 px, and never leaves the conversation less than 400 px.
+- **Narrow windows.** When even the minimum width would squeeze the conversation below 400 px, the dock floats over the conversation instead.
 
-Panels open in a **resizable column on the right of the app frame**, not in a layer over it. The frame's own two columns — the sidebar and the details panel — are grid tracks a plugin cannot add to, so the dock takes the one additive frame-wide seat there is (`shell.overlay`) and reserves its width on the frame itself: `PanelHost` sets `--dsh-advanced-dock-reserved` and a marker attribute on the frame element, and two attribute-selector rules in [`PanelHost.module.css`](src/client/PanelHost.module.css) turn that into a padding on the frame plus a matching shift of the frame's own details handle, so that handle stays on the column border it drags.
+### Changes
 
-Dragging the dock's left edge resizes it; so do Left and Right on the focused handle, and a double-click restores the configured width. The width is written to the controller immediately and to `panelWidth` in the settings section when the scope is writable — a remote Web Client has no settings document, and a drag there still has to resize the dock. During a drag the width is written straight to the DOM rather than through React, so a diff list or a terminal emulator is not re-rendered at pointer cadence.
+- **Status.** The working directory's status, grouped as Staged, Not staged, Untracked, and Conflicted, with branch, ahead, and behind counts. Click a file to see its patch, with **Copy patch**.
+- **Staging.** **Stage** / **Unstage** a file, or a whole group with **Stage all** / **Unstage all**.
+- **Commit.** **Commit** records what is staged, with an optional **Amend the previous commit**. The author git would record (`git var GIT_AUTHOR_IDENT`) is shown under the message box, so a missing `user.email` is visible before you commit.
+- **Generate.** Writes a commit message with the model the composer is currently set to. The model sees only the staged patch, up to `commitMessageMaxBytes`. The message goes into the box for you to edit, and nothing is committed automatically.
+- **Push.** Pushes the current branch to its upstream (`git push` with no arguments). A branch with no upstream shows **Publish** instead, which pushes to `origin`, or to the first remote if there is no `origin`, and sets the upstream. Force push, a remote picker, and custom refspecs are not offered.
+- **No discard.** There is no way to discard changes from this panel. Use the Terminal panel.
 
-How wide the dock may get is what the frame can spare: its own width **less the sidebar's**, less a 400px floor for the conversation. The sidebar is subtracted because the frame's solver never makes it concede — it holds the sidebar at its preference and lets the centre absorb every squeeze, so a ceiling measured from the frame alone spends that width twice and leaves the conversation a sliver. Below the width at which even the smallest dock would breach that floor, the dock stops reserving and floats over the conversation with a margin and an elevation. Both are measured from the frame's own box, not from a media query: the Web Client can be embedded, and the window is not the frame.
+### Terminal
 
-## The component kit
+- **Your own shells.** Interactive shells in the session's working directory, in tabs, up to `maxTerminals`. They are separate from the model's terminals.
+- **Controls.** **Interrupt** and Ctrl+C send SIGINT to the foreground process group. **Clear** clears the screen, and **Restart** starts a new shell.
+- **Shells keep running.** Closing the dock or switching panels leaves them running. Reopening a tab replays the output the host kept (`terminalScrollback`). Closing a tab ends its shell, and so does archiving or deleting the session.
+- **Emulator.** The screen is `@xterm/xterm`, so colors, line editing, and full-screen programs work.
 
-Every control this plugin draws comes from [`src/client/ui/`](src/client/ui), a small kit in **shadcn/ui's vocabulary**: the variant and size axes, the geometry scale, the flat bordered surfaces, and the focus ring — over the harness's own design tokens, so the components sit in the app's light and dark themes unmodified. shadcn itself cannot be installed here: it is Tailwind utilities over Radix, and this browser half ships as one bundled CSS-Modules file with no Tailwind pipeline and no second React runtime to give Radix.
+![Terminal panel with two shell tabs and git command output](https://raw.githubusercontent.com/navid-kianfar/dsh-advanced-sidebar/main/docs/screenshots/terminal-panel.png)
 
-`Button`, `Badge`, `Input`, `Textarea`, `Switch`, `Checkbox`, `Select`, `Tabs`, `Alert`, `Dialog`, `AlertDialog`, `DropdownMenu`, `Tooltip`, `Separator`, `Calendar`, and `DatePicker` are the pieces; [`Layer`](src/client/ui/Layer.tsx) is the portal they all float in.
+### Files
 
-The kit is also what fixes the menu. The harness's `Menu` primitive clamps a root list into the viewport but pins a submenu at `left: calc(100% + 10px)` with no collision handling — so the header's menu, which is always anchored near the right edge, pushed its `Open in` submenu off the window entirely. Every surface here is placed through [`placeLayer`](src/client/ui/anchor.ts), a pure function of four rectangles that flips a submenu to the left of its row when the right cannot hold it, shifts it to stay inside the window, and reports the height it may occupy. `tests/anchor.spec.ts` covers the flip, the shift, and the case where neither side fits.
+- **Browsing.** The working directory, one level at a time. Hidden entries are excluded unless `filesShowHidden` is on.
+- **Preview.** A text preview up to `filesMaxPreviewBytes`. Binary files show their size.
+- **Actions.** **Open with the default application** and **Show in file manager**.
 
-## What each panel does, and what it deliberately does not
+![Files panel listing a directory, with a text file previewed](https://raw.githubusercontent.com/navid-kianfar/dsh-advanced-sidebar/main/docs/screenshots/files-panel.png)
 
-**Changes** reads the repository and writes to its index. The reading is `git status --porcelain=v2 --branch -z --untracked-files=all`, parsed in [`src/host/porcelain.ts`](src/host/porcelain.ts); `-z` is what keeps a path containing a space, a quote, or a newline identical between the status reading and the diff request that follows it.
+### Preview
 
-Stage and unstage act on one file or a whole group, and **Commit** records what is staged, with an optional amend. Each write returns the reading that follows it, so the lists never lag a round trip behind the index they describe, and open patches are dropped with the index they described.
+Four modes, with a viewport picker (Desktop, Tablet, Mobile, Custom) in every mode.
 
-**Generate**, beside Commit, has the deployment's own model write the message. It is the model the composer is already set to (`ctx.agentDefaultModel.currentSelection()`), so there is no second credential and no second provider to configure; a Host with no `ctx.llm` or no selection reports the button unavailable rather than failing when it is pressed. The model is shown **the staged patch and nothing else** — not the working tree, not the history, not the session — bounded by `commitMessageMaxBytes` and told when it was cut. The answer lands in the message box for a person to edit; nothing commits on its own. `commitMessagePrompt` replaces the built-in instruction for a repository with its own convention.
+| Mode | What it shows |
+| --- | --- |
+| **Server** | Launch configurations from the workspace's `.claude/launch.json` (Claude Code's format) and the `previews` setting. The file wins when both define the same name. **Start** and **Stop** a server, view **Logs** (these open automatically when a start fails), **Open in a new window**, or **Open inspectable**, which hands the URL to URL mode. |
+| **File** | A workspace file, rendered by type: HTML and SVG in a frame, Markdown rendered, images, audio, video, PDF, and plain text. The panel reloads when the file changes. Files over `previewMaxFileBytes`, or of unknown types, offer **Open with the default application**. |
+| **URL** | Any `http(s)` address. A `localhost`, `127.x.x.x`, or `[::1]` address is loaded through the host's proxy, so the frame is same-origin and its DOM and console can be read. Other addresses are framed directly and labeled cross-origin. |
+| **Scratchpad** | HTML you type, rendered from a host route. The text is saved per workspace in this browser's `localStorage`. |
 
-**Push** sends the current branch to its own upstream, and nothing else. There is no refspec assembled from browser text: `git push` with no arguments already means exactly what the button offers, and one built from a text field would let a single control push anything anywhere. A branch with no upstream is not pushed but **published** — the button says so, and records the remote it went to (the branch's own remote where it has one, then `origin`, then the first remote there is). Credential prompts are refused rather than waited on (`GIT_TERMINAL_PROMPT=0`), so a repository needing one fails fast instead of hanging until the timeout; that timeout is `gitPushTimeoutMs`, separate from every reading because a push waits on a network and on the remote's own processing.
+For a launch configuration, readiness means the configured `port` accepts a TCP connection, checked until `previewReadyTimeoutMs`. The child process gets `PORT`, `NO_COLOR=1`, and `FORCE_COLOR=0`. Stopping sends SIGTERM to the process tree, then SIGKILL after `previewGraceMs`.
 
-**Discarding is deliberately absent.** Stage, unstage, and commit are all recoverable — the working tree is untouched by the first two, and a commit stays in the reflog — while `git restore` destroys uncommitted work with nothing left to recover it from. A sidebar is the wrong place for the one irreversible verb in the set, and it is a keystroke away in the Terminal panel beside it.
-
-Four things the panel does rather than leaving to git's own error text:
-
-- Every path is proved to sit inside the repository before git sees it, and passed after `--` as a literal path — `git add` takes *pathspecs*, so an unchecked `:(exclude)` would stage something nobody picked.
-- The message crosses as one argument to `-m`, so no shell sees it and nothing in it can become an option. A message of `--amend --author=someone` commits that text.
-- The author is read with `git var GIT_AUTHOR_IDENT` — git's own answer to "who would this commit be by" — and shown under the box, so a missing `user.email` is visible *before* the button is pressed.
-- Committing has its own timeout (`gitCommitTimeoutMs`, default 2 minutes) because it runs the repository's `pre-commit` hook, which can far outlast any reading; killing one mid-run leaves a stale `index.lock`. Hooks run, and a hook's stderr comes back verbatim rather than summarized.
-
-A repository's own `.git/config` is not trusted to run programs. Opening the panel would otherwise execute whatever it names, so:
-
-- Every invocation carries `-c core.fsmonitor=false`: the monitor is an executable git runs on each index refresh.
-- Every `git diff` carries `--no-ext-diff --no-textconv`, so no `diff.external`, diff driver, or textconv program renders a patch.
-- Readings (status, diff, log, identity, remote list) switch off the content filters (`filter.<driver>.clean`/`process`) defined in the repository's `local`/`worktree` config with `-c filter.<driver>.clean=`; filters from `global`/`system` config — where `git lfs install` puts its own — still run. A driver whose name `-c` cannot address (it contains `=`) fails the reading rather than running.
-- **Publish** refuses a branch or remote name that starts with `-` or fails git's own grammar (`check-ref-format --branch`, and a valid `refs/remotes/<remote>/…`), and pushes `-- <remote> refs/heads/<b>:refs/heads/<b>`, so a HEAD of `refs/heads/--receive-pack=…` can never be read as an option.
-
-Staging, committing and pushing are an operator's explicit action and keep git's normal behaviour — filters, hooks, signing, transport config — exactly as the same command in a terminal would.
-
-Every write is gated by a setting the **Host** enforces, not just the panel — `allowGitStaging`, `allowGitCommit`, `allowGitPush`, `allowCommitMessageDraft`: switching one off takes the verb away rather than hiding it.
-
-**Terminal** allocates its own shells through `ctx.subprocess.spawnTerminal` — deliberately **not** `ctx.terminals`. That registry's sessions are owner-fenced to an `Agent` and are the model's working terminals; joining them would let a human's keystrokes land in a session the model believes it controls.
-
-There are **as many shells as `maxTerminals` allows**, on a tab strip, each with its own emulator, its own poll chain, and its own Restart. The handles live in the plugin's shared controller rather than in the panel, so switching to another panel or closing the dock leaves the shells running exactly as hiding a terminal pane in an editor does; a reopened tab replays from the Host's retained scrollback rather than restarting. Closing a tab closes its shell, and so does the session going away. Every open tab stays mounted and laid out — hidden with `visibility`, never `display: none`, because a box with no layout makes the emulator's fit throw and the screen would have to be rebuilt on every tab switch.
-
-The screen is a real terminal emulator (`@xterm/xterm`), and that is why the browser bundle is large. It is not a preference: an interactive shell redraws its prompt with cursor addressing on every keystroke, and a hand-rolled screen model renders a login shell's prompt as overwritten fragments — verified, then replaced. Colour, line editing, history recall, and full-screen programs come with the emulator. Ctrl+C is intercepted and delivered as a **signal to the foreground process group** rather than as a byte, which is the difference between interrupting a running command and doing nothing.
-
-Output is polled, not pushed: an out-of-tree plugin has no host-to-client push channel, so the panel holds the whole-stream offset it has already written into the emulator and asks for whatever came after it. That offset is also what makes a reopened panel replay the retained scrollback.
-
-There is no resize: the subprocess seam exposes none. The emulator follows the dock so rendered rows stay readable, but the *shell* keeps the size it was allocated at; **Restart** allocates one at the new size.
-
-[`src/client/terminal-screen.ts`](src/client/terminal-screen.ts) survives as the log renderer for the Preview and Background tasks panels, which show plain output rather than an interactive screen.
-
-**Files** lists through this plugin's own endpoint rather than the Web Client's `listDirectory`, because the Host's browse capability returns directories only — its one shipped caller is a workspace picker. Every path is resolved through `ctx.fs` and proved to sit inside the workspace before anything reads it.
-
-## The Preview panel
-
-The Preview panel is one surface with four ways to point it at something, plus the machinery that
-makes a framed page **inspectable** — by the panel and by the agent.
-
-### The four modes
-
-| Mode | What it shows | How it is framed |
-|---|---|---|
-| **Server** | A launch configuration, started on the Host, with its logs | The dev server's own URL, cross-origin |
-| **File** | Any file in the session workspace, by type | A workspace document is served from this Host's own route; Markdown, images, PDF, audio and video go to this panel's or the browser's elements |
-| **URL** | Any `http(s)` address | A loopback address is routed through this Host's proxy; anything else is framed as typed |
-| **Scratchpad** | An HTML document you type | Posted to this Host's scratchpad route, so the frame has a real URL and a real origin |
-
-**Server** is the original behaviour, unchanged: `previewList`/`previewStart`/`previewStop`/`previewLogs`
-still do what [Launch configurations](#launch-configurations) describes, including the readiness
-probe, the log view that opens itself on a failed start, and the permanent **Open in a new window**
-escape hatch. **Open inspectable** hands the running server's URL to the URL mode, which is the one
-click between "it is on another port" and "the agent can read its DOM".
-
-**File** takes a path — relative to the session workspace, or absolute inside it — and asks the Host
-what it is. The Host answers with the kind, the size, the same-origin URL, and a change token, and the
-panel renders accordingly:
-
-| Kind | How it renders |
-|---|---|
-| `.html`/`.htm`/`.xhtml`, `.svg` | Framed live from the Host's file route, with a `<base>` injected so relative assets resolve |
-| `.md`/`.markdown` | Fetched as text over the same route and rendered by `MarkdownText` from `dsh-client-ui-primitives` — semantic React elements, raw HTML disabled, unsafe protocols stripped. No `dangerouslySetInnerHTML` of untrusted content anywhere in this package |
-| png/jpg/jpeg/gif/webp/avif/bmp/ico | `<img>` |
-| mp4/webm/mov/mp3/wav/… | `<video>` or `<audio>` with controls |
-| pdf | Framed, so the browser's own viewer draws it |
-| text-like (`.txt`, `.csv`, source files, …) | Fetched as text over the same route and shown in a monospace pane; the frame stays loaded behind it, so `ui_preview dom`/`eval` still read the document |
-| anything else | The honest "not previewable" state, with the name, kind, size and **Open with the default application** through `ctx.workspaces.openPath` |
-| anything over `previewMaxFileBytes` | The same state, saying so, with the same action |
-
-A previewed file is watched: the Host re-states its change token on a 900 ms poll, and a token that
-moves **remounts** the frame rather than reloading it. A remount is the only way to be sure nothing
-the old document cached survives into the new one.
-
-**URL** is a plain address bar with Go, Reload and Open-in-a-new-window. A `localhost`, `127.x.x.x`
-or `[::1]` address is automatically routed through the Host's proxy, so the frame is same-origin and
-inspectable, and the panel says so. Anything else is framed exactly as typed and labelled as
-cross-origin, because looking at a public page is a reasonable thing to ask for and the panel should
-say what it cannot do rather than refuse.
-
-**Scratchpad** is a textarea whose document renders beside it from the Host's own route — not
-`srcdoc`, which would give the frame an opaque origin where `document.baseURI`, a relative `fetch`
-and `window.location` are all meaningless. The text is stored per workspace in this browser's
-`localStorage` (see `preview-storage.ts`); a browser that refuses storage is reported as a note and
-the render still works.
-
-### Same-origin preview serving
-
-This is the piece the rest is built on. An `<iframe src="http://127.0.0.1:5173">` is cross-origin, so
-its `document` is unreachable: the panel could show a page but never read it, and neither could the
-model. Three routes registered through `ctx.webServer.register` fix that by serving the same bytes
-from the GUI's own origin:
-
-| Route | Kind | What it does |
-|---|---|---|
-| `/advanced-sidebar/preview-file` | exact | Serves one workspace file: `?workspace=…&path=…`, both proved to be inside the workspace through `resolveInside`. Types by extension, states the charset, injects one `<base>` into an HTML document, answers `304` on `If-None-Match`, supports byte ranges where the filesystem seam can, and never caches |
-| `/advanced-sidebar/preview-proxy` | prefix | A reverse proxy for **loopback dev servers**: method, headers, body, status, streaming responses (SSE included) and websocket upgrades pass through |
-| `/advanced-sidebar/preview-scratchpad` | exact | Renders a document the panel POSTs, so the scratchpad frame has this origin |
-
-These refusals keep that power from becoming a hole in the GUI:
-
-1. **Every route answers only the authenticated GUI.** Each route, and the websocket upgrade, calls
-   the Host connection's `requestRejection` first — the same gate `/api`, the Typert websocket and the
-   harness's own open-in-app routes use. It enforces the Host/Origin fence (a loopback or
-   `trustedHosts` authority, no cross-site `Sec-Fetch-Site`, an `Origin` matching the `Host`), which
-   is what defeats DNS rebinding, and then the signed `dsh-auth-*` browser cookie. That cookie is
-   `SameSite=Strict`, so the panel's same-origin `<iframe src>`, its `fetch`, and the frame's own
-   subresources carry it and a page on any other site does not; everything else gets `401`/`403`.
-   A Host whose connection has no such gate mounts **no routes**, and `describe()` says why.
-2. **The proxy only talks to loopback.** `validateProxyTarget` refuses every host that is not a
-   loopback literal — `localhost`, `127.0.0.0/8`, `[::1]` — so a model cannot use it to fetch an
-   intranet service from the operator's network position. A hostname that merely *resolves* to
-   loopback is refused too: deciding that by lookup would make the answer depend on the resolver at
-   request time, which is exactly the case a DNS rebinding attack exploits. The GUI's `dsh-auth-*`
-   cookie is stripped from forwarded requests and from upstream `Set-Cookie`, so a dev server never
-   holds, or replaces, a harness credential.
-3. **A file is only read from inside a registered workspace.** `?workspace=` is a claim, not a root:
-   the resolved file must also sit inside one of `ctx.workspaceRegistry`'s workspaces, so
-   `?workspace=/` does not make the disk a workspace. A Host with no registry serves no file.
-4. **Containment is the filesystem's.** Every path goes through the same
-   `resolveWorkspace`/`resolveInside` containment the Files panel uses, so a symlink that escapes is
-   caught by the filesystem's own canonicalization rather than by string arithmetic.
-
-A proxied page is still same-origin with the GUI — that is the point of the proxy — so its scripts
-can call the GUI's API with the operator's session. Only preview a dev server you would run in a
-browser tab signed in to this harness.
-
-Relative assets inside a framed document resolve through an injected `<base>` that points back at
-the file route, so `./app.js` beside `index.html` loads. That works through a query-string base
-because the browser appends a relative path to the base's **path**, keeping the base's query intact.
-
-### Driving the UI from the agent
-
-`ui_preview` is the model-facing tool, in its own row so a deployment can mount the sidebar without
-giving a model a verb on it. It has one action per thing a person would do by hand:
-
-| Action | Arguments | What it does |
-|---|---|---|
-| `open` | `url` **or** `path` (+ `workspace`, `waitMs`) | Points the panel at a URL or a workspace file, switching to the matching mode |
-| `dom` | `selector` (optional) | Returns the rendered DOM under the selector: per node the tag, an `#id.class` fragment, its own text, computed `display`, box metrics and depth, plus the frame's `innerText`, viewport and URL |
-| `eval` | `expression` | Evaluates in the frame's realm and returns the value as JSON, with a note when it was not representable |
-| `console` | `cursor` (optional) | Returns buffered `log`/`info`/`warn`/`error`, uncaught errors and unhandled rejections since a cursor |
-| `click` | `selector` | Dispatches a real `click()`, so a link navigates and a submit button submits |
-| `type` | `selector`, `text` (+ `key`) | Sets the value through the prototype setter a framework can see, then dispatches `input` and `change`, and optionally a key |
-| `reload` | — | Remounts the frame |
-| `resize` | `width`, `height` | Pins the frame viewport; the panel's own device picker shows the same state |
-| `close` | — | Closes the preview |
-
-The channel is a **command queue the panel polls**. An out-of-tree plugin cannot add a wire frame, so
-the direction is inverted: the tool enqueues a command on the Host and awaits its result, the panel's
-driver polls `previewPoll` while a preview is mounted, executes what it finds against the frame, and
-reports back through `previewResult`. The poll is also the panel's heartbeat — a tab that stops
-polling is reported as gone, which is what turns a closed panel into a sentence rather than a wait.
-Every path out is bounded:
-
-- No panel in the session → refused immediately with a message naming the Preview entry to open.
-- A panel that stopped polling inside `previewBindTtlMs` → treated as gone.
-- A delivered command that is never answered → fails on `previewCommandTimeoutMs` with the kind and
-  the deadline in the message.
-- A panel that closes or stops showing a preview mid-command → its queued work is dropped and every
-  wait fails at once.
-- A panel whose backlog passes 32 undelivered commands → refused rather than grown.
-- A result of the wrong kind for the command → reported as a disagreement rather than handed to the
-  model as if it were the answer.
-
-**The trust boundary.** Everything the tool accepts is untrusted model input, and it is contained the
-way the rest of this plugin contains a browser:
-
-- `open`'s `path` and every file argument are resolved through `resolveWorkspace`/`resolveInside`
-  before anything reads them, so no path leaves the session workspace. A missing workspace is a
-  refusal, never a guess.
-- `open`'s `url` accepts any `http(s)` URL — the same latitude the panel's address bar gives a
-  person. The proxy that actually fetches a loopback target refuses every non-loopback host, so this
-  cannot become an open proxy.
-- `eval` runs in the frame's own realm, which is either a same-origin route served by this Host, a
-  loopback dev server reached through the Host's proxy, or a URL a person typed. It can reach nothing
-  the frame itself could not.
-- A cross-origin frame is refused by name — `dom`, `eval`, `click` and `type` say the page is not
-  same-origin instead of returning an empty document.
-
-### Launch configurations
-
-Launch configurations are read from the workspace's own **`.claude/launch.json`** — Claude Code's file, unchanged — and from the `previews` settings rows, in that order; a name declared in both is taken from the repository's file, because a repository is the authority on how to run itself. A row with a `runtimeExecutable` starts a process; a row with only a `url` is attach-only and simply points the frame at something already running.
+`.claude/launch.json` example:
 
 ```json
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 3000 },
-    { "name": "docs", "runtimeExecutable": "pnpm", "runtimeArgs": ["docs:dev"], "port": 5173, "cwd": "website" }
+    { "name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 3000 }
   ]
 }
 ```
 
-Readiness is a **TCP connect to the configured port**, retried until it accepts or `previewReadyTimeoutMs` passes. An HTTP probe would need a path, a method, and an opinion about which status codes count; a listening socket is the one fact every dev server agrees on. `PORT` is exported to the child, and `NO_COLOR`/`FORCE_COLOR` are set so the log view shows text rather than escape sequences.
+![Preview panel in Server mode running a launch configuration, with the proxied page and the viewport picker](https://raw.githubusercontent.com/navid-kianfar/dsh-advanced-sidebar/main/docs/screenshots/preview-panel.png)
 
-The frame is a plain `<iframe>` with viewport presets (desktop, tablet, mobile) scaled to the dock, and an editable address bar so you can navigate into a route rather than only the root. The viewport picker sits at the foot of the panel in **every** mode, and it shows the same state `ui_preview resize` writes. Two controls are permanent rather than error states:
+### Background tasks
 
-- **Logs** — stdout and stderr interleaved in arrival order, read by the same caller-owned offset the Terminal panel uses. A server that failed to start has nothing to put in the frame and its stderr is the only place the reason exists, so a failed start opens the log view itself.
-- **Open in a new window** — a page can refuse to be framed (`X-Frame-Options`, `frame-ancestors`), and cross-origin framing gives the panel no way to detect that: the load event fires either way. The escape hatch is therefore always present instead of appearing after a failure nothing can observe.
+- **List.** The session's background jobs, filtered by text, status, and start date, with duration and status.
+- **Stop.** Requires `allowTaskKill`. Stopping a task also suppresses the completion notice the model would otherwise receive.
+- **Output.** Requires `showTaskOutput`, and appears only after the task has finished and its completion has been reported. Reading output earlier would consume the output the model reads.
 
-A started server's frame is still the dev server's own URL, which is cross-origin: the Server mode is
-unchanged so an existing launch configuration behaves exactly as it did. **Open inspectable** is the
-one click out of that — it hands the running URL to the URL mode, where the Host's proxy makes it
-same-origin and therefore readable by the agent.
+### Settings card
 
-Stopping is `SIGTERM` then `SIGKILL` on the whole process tree after `previewGraceMs`, so a dev server's own child processes go with it. Starting a configuration that is already running replaces it rather than racing it for the port, and every server is stopped when the plugin unloads.
+**Settings → Plugins → Advanced sidebar** edits most settings and shows, for each Open in target and preview configuration, whether it is available on this host. See [Configuration](#configuration).
 
-**Background tasks** does not fetch its list. The Host already pushes `session/jobs` frames that the Web Client folds into `jobsBySession`, so the panel reads the same live data the session header's job chip reads. Only Stop and output cross this plugin's endpoint:
+![Advanced sidebar settings card, expanded, with menu entry toggles, limits, and the Open in target list](https://raw.githubusercontent.com/navid-kianfar/dsh-advanced-sidebar/main/docs/screenshots/settings.png)
 
-The list is filtered in the browser by a text filter, a status `Select`, and a `DatePicker` bounding how old a task may be. The date is compared against a **local midnight** rather than a formatted day, so a task started at 23:30 belongs to the day the operator saw on the clock.
+## Requirements
 
-- **Stop** marks the registry record *reported*, which suppresses the completion notice its producer would otherwise deliver to the model. That is the correct trade for a person pressing Stop — the work is cancelled on their authority — and it is why the verb is a setting (`allowTaskKill`) rather than always on.
-- **Output** is served only once a task has settled **and** its completion has been reported. `ctx.jobs.read()` consumes the same cursor the model reads from, so draining a live task's stream would silently delete output the model was about to receive. Text already drained is retained Host-side, so reopening the panel shows it again instead of an empty second read.
+- **DeepSeek Harness 0.1.5-rc.2** with the `web` profile. This is the version the plugin is tested against. Node `^22.19 || >=24`.
+- **pnpm** on `PATH`, because `dsh plugin` runs pnpm.
+- **git 2.23 or newer** on the host `PATH` for Changes, because unstaging uses `git restore --staged`.
+- Harness capabilities, each optional. A missing one disables only the entries that need it, with the reason shown:
 
-**Open in** distinguishes a directory from a file: a directory is opened, a file is *selected* in its folder (`open -R`, `explorer /select,`). The harness's own `host.openPath` hands a path to its default application, which is the right verb for the first and the wrong one for the second.
+| Capability | Needed by |
+| --- | --- |
+| `subprocess` | Changes, Terminal, Preview servers, Open in |
+| `fs` | Changes, Terminal, Files, Preview |
+| `jobs` | Background tasks (Stop and Output) |
+| `workspaceRegistry` | Delete; Preview File mode (files are served only from registered workspaces) |
+| `llm` + `agentDefaultModel` | **Generate** commit message |
+| `connection` (with `requestRejection`) + `webServer` | Preview's same-origin routes: File mode, the loopback proxy, Scratchpad |
+| `tools` | The `ui_preview` model tool |
+| `sessionLogDownload` (from `@deepseek-ai/dsh-session-log-export`) | Download session log |
 
-**Delete** archives, because no harness capability deletes a session — the workspace registry can only archive, and the published `SessionPersistence` contract (`create`, `open`, `flush`, `stat`, `list`) has no removal verb. So Delete is honest about what it did:
+- **OS:** developed and tested on macOS. The code has Windows and Linux branches (shell fallback, file-manager command) that are not verified.
 
-- `archive` hides the session and keeps its log.
-- `purge` is **unavailable on this harness (0.1.5-rc.2)**. The JSONL backend keeps a session as a directory of generation files behind a `session.lock` write lease and in-process caches, and the workspace registry indexes its header; removing those files from outside the backend would bypass the lease and leave stale caches answering for a log that is gone. `describe()` reports `canPurge: false` with that reason, the settings card refuses to select `purge`, and a composition that still configures it gets an archive whose result carries `purgeSkippedReason` every time — never a silent downgrade.
+## Install
 
-## Settings
+```bash
+dsh plugin --profile web add @achasoft/dsh-advanced-sidebar
+dsh web
+```
 
-The `advanced-sidebar` section is registered by the Host half and rendered as a card on the settings **Plugins** tab. Every control writes straight through the bound settings scope, which owns revision fencing; there is no save or discard.
+`dsh plugin --profile <name> …` runs pnpm with the remaining arguments in `$DSH_HOME/profiles/<name>` (default `~/.dsh/profiles/web`). Afterwards, dsh adds every dependency whose `package.json` declares `dsh.bundle` to `dsh.profile.bundles`. This package declares `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }`, so it is enabled with no manual edit. Restart `dsh web` after installing.
 
-`describe()` also carries the **resolved section**, and every surface reads `bound scope value ?? describe().settings`. That is not redundancy: `ctx.settingsScope` resolves to a real document only on a loopback connection and answers `unavailable` with no value on every remote Web Client. Without the Host's copy the whole surface would read "no settings" as "switched off" and disappear for remote access; with it, a remote client sees the deployment's real configuration, read-only.
+To uninstall, remove the package. dsh also drops it from `dsh.profile.bundles`:
 
-Every deployment-varying choice is a `config` field on the `advanced-sidebar` row in [`cordis.patch.yml`](cordis.patch.yml) — placement, which entries exist, dock width, delete mode, task permissions, git bounds, the shell, the terminal count, the file-preview bounds, the preview-serve bounds, and the Open in targets. The card edits all of them except the target list, which stays in `cordis.yml` where a command and its arguments can be written properly; the card shows each target's **availability on this Host**, which the file cannot state.
+```bash
+dsh plugin --profile web remove @achasoft/dsh-advanced-sidebar
+```
 
-The Preview panel's own bounds, all four on the `advanced-sidebar` row:
+### How `cordis.patch.yml` is applied
 
-| Setting | What it bounds |
-|---|---|
-| `previewMaxFileBytes` | Largest workspace file handed to the frame. Separate from `filesMaxPreviewBytes` because a video is legitimately far larger than any file worth reading as text; past it the panel reports the size and offers the OS application |
-| `previewProxyTimeoutMs` | One proxied request to a loopback dev server |
-| `previewCommandTimeoutMs` | How long one `ui_preview` command waits for the panel before the tool reports a timeout — the outer deadline, since the tool's own `commandTimeoutMs` is only its `open` budget |
-| `previewBindTtlMs` | How long a panel is trusted after its last poll. This is what turns a closed tab into "no preview surface" rather than a silent wait |
+At boot, dsh builds the configuration from patch layers, in this order:
 
+1. Each bundle's `cordis.patch.yml`, in `dsh.profile.bundles` order.
+2. `$DSH_HOME/profiles/<name>/cordis.patch.yml`.
+3. `$DSH_HOME/cordis.patch.yml`.
+4. Any `--patch <file>` overlays.
 
-## Composition
+Later layers override earlier ones by row `id`. This package inserts three rows:
 
-Three rows, and the third is optional:
+| id | name | Role |
+| --- | --- | --- |
+| `advanced-sidebar` | `@achasoft/dsh-advanced-sidebar/host` | Host service, RPC namespace `advancedSidebar`, the `advanced-sidebar` settings section, and the preview routes. |
+| `advanced-sidebar-ui` | `@achasoft/dsh-advanced-sidebar` | Browser half. It must be the bare package name, because the Web Client finds browser code by resolving `<row name>/package.json`. |
+| `advanced-sidebar-ui-preview` | `@achasoft/dsh-advanced-sidebar/ui-preview` | The `ui_preview` model tool. |
+
+To keep the sidebar but not give the model a tool, disable the third row in your profile's `cordis.patch.yml`:
 
 ```yaml
-- insert:
-    - id: advanced-sidebar
-      name: '@achasoft/dsh-advanced-sidebar/host'
-      config: { ... }
-    - id: advanced-sidebar-ui
-      name: '@achasoft/dsh-advanced-sidebar'
-    - id: advanced-sidebar-ui-preview
-      name: '@achasoft/dsh-advanced-sidebar/ui-preview'
-      config:
-        commandTimeoutMs: 15000
+- id: advanced-sidebar-ui-preview
+  disabled: true
 ```
 
-The second row is the **bare package name** deliberately: the Web Client discovers a browser half by resolving `<row name>/package.json`, so a subpath row would leave every seat silently unserved.
+To see the composed result:
 
-The third row is the agent tool, and it is separate for two reasons. Re-exporting the registrant from
-the root entry would hide it inside the browser half's graph, and — the reason that matters — a row
-is where `inject` is declared: `inject: ['tools', 'advancedSidebar']` is what makes the tool wait for
-the service it calls rather than race the row that provides it. Leave the row out and the tool does
-not exist, which is the right shape for a deployment that wants a sidebar without a model-facing verb.
-
-Three slot registrations: `conversation.session.header.utilities`, `shell.overlay` (the dock and the Delete confirmation), and `settings.plugin.item`. They have no common React ancestor, so what a person opened — the panel, the dock's width, and the terminal tabs — lives in a controller this package owns and hands to each registration through its inject face.
-
-There was a fourth, at the sidebar foot. It was withdrawn: the same menu in two places gave the session column an action whose target was whichever session happened to be current, which is not what a column of sessions reads as.
-
-The Preview panel's same-origin routes are not a row: they are registered from the Host service's
-constructor through `ctx.inject(['webServer'], …)`, so a deployment that composes no web server —
-the headless case — simply has no routes, and the File mode reports that rather than failing.
-
-## The generated Typert artifact
-
-`generated/` carries the RPC contract the browser half mounts. The harness's Typert generator reads a TypeScript program seeded from the harness's own `tsconfig.host.json`, so it cannot run against a package outside that checkout; the artifact is therefore **authored to that generator's format** by [`scripts/emit-typert.mjs`](scripts/emit-typert.mjs), which holds the endpoint list and every wire schema.
-
-Editing `src/host/types.ts` or the `@Remote` surface means editing that spec too:
-
-```sh
-pnpm run regen:typert   # re-emits generated/ and records its fingerprint
+```bash
+dsh --profile web --dump-config
 ```
 
-`pnpm test` refuses a mismatch: `scripts/check-typert.mjs` compares declared and generated endpoints as sets and re-hashes the inputs, and `tests/typert-contract.spec.ts` parses a representative value through every descriptor's schemas.
+## Configuration
 
-## Development
+All keys below are in the `config` of the `advanced-sidebar` row. A patch replaces a row's whole `config`, so an override must restate every key. Copy the row from this package's `cordis.patch.yml` and edit it.
 
-```sh
-pnpm install
-pnpm run build       # tsc emit -> tsdown two-half bundle
-pnpm run typecheck
-pnpm test            # typert drift check + vitest
-```
+The host schema declares no defaults, and every key except `commitMessagePrompt` and `terminalShell` is required. The defaults listed are the values `cordis.patch.yml` ships. Changes saved from the settings card are stored as a user layer over the patch value. **Card** marks keys the card can edit. On a Web Client that is not on loopback the harness settings scope is unavailable, so the card and menu show the host's values read-only.
 
-For a live loop, run `npx tsdown --watch` in this package: the harness's HMR half stat-polls the
-served bundle, so any writer of `lib/client.js` triggers a reload.
+**Menu and behavior**
 
-**A browser-half change reloads by itself; a Host-half change needs a restart.** The HMR watcher
-polls the client bundle only, so a rebuilt `lib/client.js` reaches the open page within a second or
-two. `lib/host.js`, the Typert artifact, and the routes registered through `ctx.webServer` live in
-the node process, which no watcher this package can reach reloads — restart `dsh web` after changing
-anything under `src/host/`. The same applies the first time the plugin is loaded with the
-`advanced-sidebar-ui-preview` row added, and after `pnpm run regen:typert`.
+| Key | Default | Card | What it does |
+| --- | --- | --- | --- |
+| `showInSessionHeader` | `true` | yes | Shows the ⋯ menu in the session header. When off, the button still appears if needed to offer Download session log, and nothing else. |
+| `showChanges`, `showTerminal`, `showFiles`, `showTasks`, `showPreview`, `showOpenIn`, `showArchive` | `true` | yes | Shows each menu entry. |
+| `showDelete` | `true` | yes | Shows Delete. When off, the host also refuses `deleteSession`. |
+| `panelWidth` | `460` | yes | Dock width in px (schema allows 280–1400; the dock uses at most 960). Dragging the edge saves here when the scope is writable. |
+| `deleteMode` | `archive` | yes | `archive` or `purge`. `purge` is unavailable on this harness; see limitations. |
+| `confirmDelete` | `true` | yes | Asks before Delete. Must be `true` when `deleteMode` is `purge`. |
+| `allowTaskKill` | `true` | yes | Offers Stop, enforced by the host. |
+| `showTaskOutput` | `true` | yes | Offers Output for finished tasks, enforced by the host. |
+
+**git (Changes panel)**
+
+| Key | Default | Card | What it does |
+| --- | --- | --- | --- |
+| `gitMaxFiles` | `500` | yes | Most files in one status reading. |
+| `gitDiffMaxBytes` | `262144` | no | Largest patch returned for one file. |
+| `gitTimeoutMs` | `20000` | yes | Time limit for each read-only git command. |
+| `allowGitStaging` | `true` | yes | Stage and unstage, enforced by the host. |
+| `allowGitCommit` | `true` | yes | Commit, enforced by the host. Also requires staging. |
+| `gitCommitTimeoutMs` | `120000` | yes | Time limit for `git commit`, which runs hooks. |
+| `allowGitPush` | `true` | yes | Push and Publish, enforced by the host. |
+| `gitPushTimeoutMs` | `180000` | yes | Time limit for a push. |
+| `allowCommitMessageDraft` | `true` | yes | **Generate**, enforced by the host. Also requires commit. |
+| `commitMessagePrompt` | `''` | no | Replaces the built-in commit-message instruction. Empty uses the built-in one. |
+| `commitMessageMaxBytes` | `65536` | yes | Largest staged patch sent to the model. A longer patch is truncated, and the model is told it was cut. |
+
+**Terminal and Files**
+
+| Key | Default | Card | What it does |
+| --- | --- | --- | --- |
+| `terminalShell` | `''` | yes | Shell to run. Empty uses `$SHELL`, then `/bin/sh` (`%COMSPEC%` or `powershell.exe` on Windows). |
+| `terminalScrollback` | `200000` | no | Characters of output kept per terminal for replay. |
+| `maxTerminals` | `4` | yes | Most panel terminals open at once (1–32). |
+| `terminalGraceMs` | `3000` | no | Delay between TERM and KILL when a terminal closes. |
+| `filesMaxPreviewBytes` | `262144` | no | Largest file shown in the Files preview. |
+| `filesMaxEntries` | `2000` | no | Most entries listed per directory. |
+| `filesShowHidden` | `false` | no | Lists dot-files. |
+
+**Preview**
+
+| Key | Default | Card | What it does |
+| --- | --- | --- | --- |
+| `previewsFromLaunchFile` | `true` | yes | Reads `.claude/launch.json`. |
+| `previews` | `[]` | no (listed) | Extra launch rows: `name`, `runtimeExecutable`, `runtimeArgs`, `port`, `url`, `cwd`. An empty `runtimeExecutable` makes the row attach-only: it points the frame at `url` and starts nothing. |
+| `maxPreviews` | `3` | yes | Most dev servers running at once. |
+| `previewReadyTimeoutMs` | `60000` | yes | How long to wait for the port to accept connections. |
+| `previewScrollback` | `200000` | no | Log characters kept per server. |
+| `previewGraceMs` | `3000` | no | Delay between TERM and KILL when a server stops. |
+| `previewMaxFileBytes` | `33554432` | no | Largest workspace file served to the frame. |
+| `previewProxyTimeoutMs` | `30000` | no | Time limit for one proxied request to a loopback server. |
+| `previewCommandTimeoutMs` | `15000` | no | How long a `ui_preview` command other than `open` waits for the panel. |
+| `previewBindTtlMs` | `6000` | no | How long a panel counts as open after its last poll. |
+
+**Open in**
+
+| Key | Default | Card | What it does |
+| --- | --- | --- | --- |
+| `editors` | VS Code (`code`), Cursor (`cursor`), Zed (`zed`) | no (availability listed) | Rows of `id`, `label`, `command`, `args`. `args` go before the path. `id` must match `^[a-z][a-z0-9-]*$`, be unique, and not be `reveal`. |
+
+The host refuses a configuration at load when:
+
+- an editor id is invalid or duplicated, or an editor command is empty;
+- a preview name is empty or duplicated;
+- a preview row has no command, no URL, and no port;
+- `deleteMode` is `purge` while `confirmDelete` is `false`.
+
+The `advanced-sidebar-ui-preview` row has one key, `commandTimeoutMs` (default `15000`, range 1000–600000). It is the default wait for `ui_preview open` when the call passes no `waitMs`.
+
+## Model tool and RPC
+
+### `ui_preview`
+
+Registered only when the `advanced-sidebar-ui-preview` row is composed. It works only while the Preview panel is open in the same session. Otherwise it returns immediately with a message telling the model to open the panel.
+
+| Action | Arguments | Result |
+| --- | --- | --- |
+| `open` | `url` or `path`; optional `workspace`, `waitMs` | Points the panel at an http(s) URL or a workspace file, and reports whether the page can be inspected. |
+| `dom` | optional `selector` | The rendered DOM: tags, ids and classes, text, display, and box metrics, plus the page text, viewport, and URL. |
+| `eval` | `expression` | Runs JavaScript in the frame and returns the value as JSON. |
+| `console` | optional `cursor` | Console messages, uncaught errors, and unhandled rejections logged since `cursor`. |
+| `click` | `selector` | Dispatches `click()` on the element. |
+| `type` | `selector`, `text`, optional `key` | Sets the element's value, dispatches `input` and `change`, then optionally the key. |
+| `reload` | none | Reloads the frame. |
+| `resize` | `width`, `height` | Sets the frame viewport size. |
+| `close` | none | Closes the preview. |
+
+`dom`, `eval`, `click`, and `type` refuse a cross-origin frame by name instead of returning nothing.
+
+### RPC namespace `advancedSidebar`
+
+The browser half calls these endpoints over the harness's client connection:
+
+- `describe`
+- `gitStatus`, `gitDiff`, `gitStage`, `gitUnstage`, `gitCommit`, `gitPush`, `gitCommitMessage`
+- `terminalOpen`, `terminalRead`, `terminalWrite`, `terminalSignal`, `terminalClose`
+- `listEntries`, `readFile`
+- `previewList`, `previewStart`, `previewStop`, `previewLogs`, `previewFileInfo`, `previewPoll`, `previewResult`, `previewRelease`
+- `openIn`
+- `taskKill`, `taskOutput`
+- `deleteSession`
+
+Every endpoint returns a result value with a failure code instead of throwing. The root export re-exports the types.
+
+## Security notes
+
+- **git does not run programs the repository configures.**
+  - Every git command passes `-c core.fsmonitor=false`.
+  - Every `git diff` passes `--no-ext-diff --no-textconv`.
+  - Read-only commands (status, diff, log, identity, remote list) switch off `filter.<driver>.clean`/`process` from the repository's local and per-worktree config. Global and system filters, such as git-lfs, still run. A driver name that cannot be disabled this way, because it contains `=`, makes the reading fail instead.
+  - Stage, commit, and push are explicit user actions and keep git's normal behavior, including hooks and filters.
+- **No option injection.**
+  - Paths are checked to be inside the repository and passed after `--`.
+  - The commit message is a single `-m` argument.
+  - Publish checks the branch with `git check-ref-format --branch`, checks the remote as `refs/remotes/<remote>/HEAD`, and pushes `-- <remote> refs/heads/<b>:refs/heads/<b>`.
+  - Credential prompts are disabled (`GIT_TERMINAL_PROMPT=0`), so a push that needs credentials fails instead of hanging.
+- **Host-enforced switches.** `allowGitStaging`, `allowGitCommit`, `allowGitPush`, `allowCommitMessageDraft`, `allowTaskKill`, `showTaskOutput`, and `showDelete` are checked by the host, not only hidden in the UI.
+- **Paths stay inside the workspace.** Files, Preview File mode, and `ui_preview` file arguments are resolved through the harness filesystem's containment check, so symlinks cannot escape.
+- **Panel terminals are separate from the model's terminals.** They are allocated with `ctx.subprocess.spawnTerminal`, not the agent's terminal registry, so your keystrokes never reach a terminal the model controls.
+- **Preview routes are gated.** The routes `/advanced-sidebar/preview-file`, `/advanced-sidebar/preview-proxy` (plus its websocket upgrade), and `/advanced-sidebar/preview-scratchpad` each call the harness connection's `requestRejection` first. That is the same host/origin check and signed `dsh-auth-*` cookie check that guards `/api`, and it answers `401`/`403` otherwise. If the connection has no such gate, the routes are not registered at all.
+  - **Loopback only.** The proxy forwards only to literal loopback hosts (`localhost`, `127.0.0.0/8`, `[::1]`). A hostname that merely resolves to loopback is refused.
+  - **No credential forwarding.** The harness's `dsh-auth-*` cookie is stripped from forwarded requests and from upstream `Set-Cookie` headers.
+  - **Registered workspaces only.** The file route serves only files inside a workspace in `workspaceRegistry`.
+  - **Scratchpad size.** Scratchpad documents are limited to 1 MiB.
+  - **No caching.** Responses are sent with `no-store`.
+- **A proxied page runs as the Web Client's origin.** Its scripts can call the harness API with your session. Only preview dev servers you trust as much as a browser tab signed in to the harness.
+- **`ui_preview open` accepts any http(s) URL**, like the address bar. Only loopback URLs become same-origin and inspectable.
 
 ## Known limitations
 
-- **The preview frame's console and network are only readable where the frame is same-origin.** That
-  is what the Host's proxy and file routes exist for: a loopback URL and a workspace document are
-  same-origin and fully readable, while a public URL framed as typed is opaque and `ui_preview` says
-  so rather than pretending. The Server mode's own frame is the dev server's URL, still cross-origin:
-  **Open inspectable** moves it to the URL mode, where it becomes readable.
-- **`ui_preview eval` runs with `Function`, so `let`/`const` and top-level `await` behave as they do
-  inside a function body.** It is not a REPL on the page's global scope: a statement list works, and
-  `return` is implied for a plain expression, but a declaration does not persist into the next call.
-- **Console capture wraps the frame's `console` and its `error`/`unhandledrejection` listeners.** It
-  sees what those see — a `fetch` that failed in the network layer is visible only if the page logged
-  it, and a worker's console is not the page's. A page in a sandboxed frame that refuses the property
-  write simply has no captured console; the DOM and the events still work.
-- **Websocket upgrades are tunnelled only at the proxy route's own root.** The web server's upgrade
-  seat matches exact paths, so a dev server that negotiates its live-reload socket on a subpath is not
-  tunnelled — and a HMR socket carries no DOM and no console, so the page still renders and is still
-  drivable. HTTP streaming, SSE included, is fully proxied.
-- **Byte ranges need `ctx.fs.readByteRange`.** The filesystem seam grew that method after the release
-  this package's build types are pinned to, so it is reached through a shape guard: where it exists a
-  `<video>` seeks properly, and where it does not the route advertises `accept-ranges: none` and
-  answers a full `200`, which every media element still plays from the start.
-- **No push channel.** An out-of-tree plugin cannot add a wire frame, so terminal output, preview
-  logs, the git reading, and the agent's preview commands are all polled. Background tasks are the
-  exception — they ride the Host's existing `session/jobs` push. The preview poll runs only while the
-  Preview panel is open: 600 ms with a preview mounted, 2 s otherwise.
-- **No terminal resize.** The subprocess seam has no resize verb. Long lines wrap rather than scroll, and **Restart** re-measures the box.
-- **The dock reserves its width through the frame's DOM.** `shell.overlay` is the only additive frame-wide seat, and it draws above the columns rather than between them, so reserving space means setting a property and a marker on the frame element and letting two attribute-selector rules do the rest. Both are removed when the dock closes or the plugin unloads. A future frame that stops publishing `data-shell-overlay`, or that positions its details handle differently, would need this updated with it.
-- **The commit-message draft spends model tokens on a human's press.** It is not a session event and the model that writes it never sees the conversation, but it is a real call against the deployment's provider; `allowCommitMessageDraft: false` removes it.
-- **Push has no force, no remote picker, and no refspec.** Those are the verbs that lose work or push somewhere unintended, and the Terminal panel is one keystroke away for them.
-- **Stopping a task suppresses its model notice.** See Background tasks above; `allowTaskKill: false` removes the verb.
-- **Purge removes one artifact.** Exactly the path the persistence backend reported for that session — a sidecar the backend owns is the backend's to remove, and a recursive delete here could take a directory.
-- **The browser bundle is ~1.2 MB (about 230 KB gzipped).** The emulator is most of it. The client module loader serves one file per plugin with no code splitting, so it cannot be deferred until the Terminal panel opens.
-- **`ui_preview` needs the Preview panel mounted in the same session.** There is no way for the Host to
-  open a panel that no browser tab is showing, so the tool refuses with a sentence naming the entry to
-  press instead of waiting for a surface that will never appear. This is the one step it cannot do for
-  itself.
-- **`--dsw-alias-label-error` is not used here.** ui-theme declares no such token, though three harness stylesheets reference it; this package uses `--dsw-alias-state-error-primary`, and `tests/styles.spec.ts` fails on any token ui-theme does not declare.
+- **Delete only archives.** The harness's session persistence API (0.1.5-rc.2) has no way to remove a session. So `deleteMode: purge` is reported unavailable, the card will not select it, and a configured `purge` archives and returns the reason the log was kept.
+- **No push channel.** An out-of-tree plugin cannot add wire frames, so terminal output, preview logs, and `ui_preview` commands are polled.
+  - The command poll runs every 600 ms while there is work and every 2 s when idle.
+  - A watched preview file is checked every 900 ms.
+  - Background tasks are the exception: they use the harness's existing `session/jobs` push.
+- **No terminal resize.** The subprocess API has no resize call. The emulator follows the dock, but the shell keeps its starting size until you **Restart** it.
+- **Server mode frames are cross-origin.** A started dev server's own URL is framed directly. Use **Open inspectable** to load it through the proxy.
+- **Websocket proxying works only at the proxy root.** A dev server that opens its live-reload socket on a subpath is not tunneled. The page still renders, and HTTP streaming (including SSE) is proxied.
+- **`ui_preview eval` runs as a function body.** Declarations do not persist between calls.
+- **Console capture sees only the page's `console` and error events**, not network failures or workers.
+- **Byte-range requests need `fs.readByteRange`.** Without it, the file route answers a full `200`, so media plays but cannot seek.
+- **The dock depends on the frame's DOM.** It reserves width by setting a CSS property and a data attribute on the `shell.overlay` frame element. A harness layout change could require an update.
+- **Large browser bundle.** The terminal emulator makes up most of it, and the harness serves one file per plugin, so it cannot be loaded lazily.
+- **Generate costs model tokens.** Each press calls the deployment's provider. Set `allowCommitMessageDraft: false` to remove it.
+- **Stopping a task hides its completion from the model.** Set `allowTaskKill: false` to remove Stop.
 
-## Verification
+## Development
 
-Every panel was exercised against a running `dsh web` before release: the git reading, a per-file patch, staging one file, unstaging it, and a real commit against a real repository — verified with `git log`, then undone, a `/bin/zsh` shell running a command and rendering its output, the file listing and a text preview, a `.claude/launch.json` dev server started and shown in the frame plus a deliberately failing one whose stderr opened the log view, the empty task list, and the Delete confirmation.
+The dev dependencies are `link:` specifiers to a DeepSeek Harness source checkout at `../../deepseek-harness`, relative to this directory. Clone the harness there before installing.
 
-The Preview panel's own verification is split deliberately:
+```bash
+pnpm install
+pnpm run typecheck
+pnpm test              # checks generated/ against src/host, then runs vitest
+pnpm run build         # tsc -p tsconfig.build.json, then tsdown -> lib/
+```
 
-- **Covered by `tests/`:** the content-type mapping and file-kind classification; the loopback
-  admission rule, including the hostnames that merely look local; the `<base>` injection, including
-  the attribute-escaping case; the byte-range parser; **every same-origin route driven end to end
-  against a faked context** — a path that escapes the workspace, a path with no workspace to be
-  inside, `304`/`206`/`416`/`413`/`405`, a `HEAD` that writes no body, the scratchpad POST, and a
-  proxy that refuses a foreign `Origin`, a non-loopback target, an unplaceable subresource and a
-  disposed surface; the command queue's whole failure surface (no panel, a stale panel, an unanswered
-  command, a released panel, a full backlog, a wrong-kind result); the value projection for cycles,
-  `BigInt`, DOM nodes and hostile getters; the scratchpad's storage rules against an absent, disabled
-  and full `localStorage`; and the `ui_preview` declaration itself, every action name checked against
-  the command kinds the driver actually handles.
-- **Exercised by hand, not by an automated test:** the panel's React rendering, the iframe's real
-  same-origin access, and the driver's execution against a live document. This package has no DOM
-  test environment, and adding one for four modes would be a larger change than the feature. The
-  pieces those paths are built from are the ones listed above; the integration between them is what
-  a person verified against a running GUI.
+`generated/` is the committed Typert RPC contract, written by `scripts/emit-typert.mjs` in the harness generator's format. If you change `src/host/types.ts` or the `@Remote` methods, update that script's spec and regenerate:
 
-The rest of the suite predates the Preview work and still covers the porcelain parser against real
-`git status -z` output, the launch-file parser and merge, the screen model's control vocabulary, the
-path-containment guard, the generated wire contract end to end, the layer placement that keeps a
-submenu on screen, the terminal group's tab bookkeeping, and every design token the stylesheets name.
+```bash
+pnpm run regen:typert  # rewrites generated/ and its fingerprint
+pnpm run check:typert  # the same check pnpm test runs first
+```
 
-An adversarial audit of the finished package found 35 candidate defects; the confirmed ones are fixed here, including a path-traversal hole in the untracked-diff path (`git diff --no-index` applies no repository containment of its own), a duplicated task-output buffer, a preview poll loop that never stopped on a failed server, and the settings fallback described above.
+To load your checkout into a local profile, build it, then add it by path:
+
+```bash
+pnpm run build
+dsh plugin --profile web add "$(pwd)"
+dsh web
+```
+
+The profile loads the built `lib/` output, so build first. After changing browser code, rebuild and reload the page. After changing anything under `src/host/`, or regenerating `generated/`, restart `dsh web`.
 
 ## License
 

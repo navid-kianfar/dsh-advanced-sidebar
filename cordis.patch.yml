@@ -177,9 +177,9 @@
     # Trust boundary: `open` with a path and every file argument are contained to the session
     # workspace, `open` with a URL accepts only http(s) (the same latitude the panel's address bar
     # gives a person), and the Host's reverse proxy refuses every non-loopback host on its own — so
-    # this tool cannot turn the GUI into an open proxy. Set `commandTimeoutMs` here to change how
-    # long one command waits for the browser; the Host's own `previewCommandTimeoutMs` is the outer
-    # deadline and is the one that matters when both are set.
+    # this tool cannot turn the GUI into an open proxy. `commandTimeoutMs` here is how long `open`
+    # waits for the browser to load the page; every other action waits for the Host's own
+    # `previewCommandTimeoutMs` instead.
     - id: advanced-sidebar-ui-preview
       name: '@achasoft/dsh-advanced-sidebar/ui-preview'
       config:
