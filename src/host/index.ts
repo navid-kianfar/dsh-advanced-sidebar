@@ -17,7 +17,7 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { installSettingsSection, settingsNamespace } from './settings-section.ts'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 // Type-only: the Context merges for the optional capabilities this service reads through `ctx.get`.
 import type {} from '@deepseek-ai/dsh-agent'
