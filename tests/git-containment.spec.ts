@@ -35,9 +35,11 @@ function canonical(path: string): string {
  * @returns the stdout that invocation would produce.
  */
 function answer(argv: readonly string[], identity: boolean): string {
+  // The repository defines no filter programs, so the listing is git's own "nothing matched".
+  if (argv.includes('config')) return ''
   if (argv.includes('rev-parse')) return '/repo\n\n'
   if (argv.includes('var')) return identity ? 'A Person <a@example.com> 1700000000 +0000\n' : ''
-  if (argv[1] === 'log') return 'abc1234\nthe subject\n'
+  if (argv.includes('log')) return 'abc1234\nthe subject\n'
   if (argv.includes('status')) return '# branch.head main\0'
   return 'diff --git a/x b/x\n'
 }
@@ -50,6 +52,25 @@ function answer(argv: readonly string[], identity: boolean): string {
  */
 function argvFails(argv: readonly string[], identity: boolean): boolean {
   return argv.includes('var') && !identity
+}
+
+/**
+ * Whether one invocation exits 1 in this fake world: `git config --get-regexp` with no match.
+ * @param argv - the arguments the reader passed.
+ * @returns true for the filter listing.
+ */
+function argvExitsOne(argv: readonly string[]): boolean {
+  return argv.includes('config')
+}
+
+/**
+ * One invocation from its subcommand on, past the executable and the config every invocation carries.
+ * @param argv - a recorded spawn.
+ * @param subcommand - the git subcommand the assertion is about.
+ * @returns the arguments from the subcommand onwards.
+ */
+function from(argv: readonly string[] | undefined, subcommand: string): readonly string[] | undefined {
+  return argv?.slice(argv.indexOf(subcommand))
 }
 
 /** A context whose filesystem canonicalizes and contains, and whose subprocess records every spawn. */
@@ -84,7 +105,7 @@ function fakeContext(
         done: Promise.resolve({
           exitCode: spec.argv.includes('--quiet')
             ? (staged ? 1 : 0)
-            : (argvFails(spec.argv, identity) ? 1 : 0),
+            : (argvFails(spec.argv, identity) || argvExitsOne(spec.argv) ? 1 : 0),
           signal: null,
         }),
         terminate: () => {},
@@ -169,14 +190,14 @@ describe('GitReader staging', () => {
     const { ctx, spawns } = fakeContext()
     await new GitReader(ctx, () => SETTINGS).stage({ workspacePath, paths: ['src/a.ts', ':weird'] })
     const add = spawns.find(argv => argv.includes('add'))
-    expect(add?.slice(1)).toEqual(['add', '--', 'src/a.ts', ':weird'])
+    expect(from(add, 'add')).toEqual(['add', '--', 'src/a.ts', ':weird'])
   })
 
   it('unstages through `restore --staged`, which works on an unborn branch', async () => {
     const { ctx, spawns } = fakeContext()
     await new GitReader(ctx, () => SETTINGS).unstage({ workspacePath, paths: ['src/a.ts'] })
     const restore = spawns.find(argv => argv.includes('restore'))
-    expect(restore?.slice(1)).toEqual(['restore', '--staged', '--', 'src/a.ts'])
+    expect(from(restore, 'restore')).toEqual(['restore', '--staged', '--', 'src/a.ts'])
   })
 
   it('re-reads the repository so the panel never shows the previous index', async () => {
@@ -217,14 +238,14 @@ describe('GitReader commit', () => {
     const { ctx, spawns } = fakeContext()
     await new GitReader(ctx, () => SETTINGS).commit(request('--amend --author=someone else'))
     const commit = spawns.find(argv => argv.includes('commit'))
-    expect(commit?.slice(1)).toEqual(['commit', '-m', '--amend --author=someone else'])
+    expect(from(commit, 'commit')).toEqual(['commit', '-m', '--amend --author=someone else'])
   })
 
   it('adds --amend before the message when amending', async () => {
     const { ctx, spawns } = fakeContext()
     await new GitReader(ctx, () => SETTINGS).commit(request('fix typo', true))
     const commit = spawns.find(argv => argv.includes('commit'))
-    expect(commit?.slice(1)).toEqual(['commit', '--amend', '-m', 'fix typo'])
+    expect(from(commit, 'commit')).toEqual(['commit', '--amend', '-m', 'fix typo'])
   })
 
   it('reports the new commit and the reading that follows it', async () => {

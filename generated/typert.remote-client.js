@@ -860,7 +860,7 @@ export const TYPERT_REMOTE = {
         typeSymbol: '../src/host/types.ts#DeleteSessionResult',
         schema: _achasoft_dsh_advanced_sidebar_advancedSidebar_deleteSession_result$schema,
       },
-      sourceLocation: {"file":"src/host/index.ts","line":591,"column":3},
+      sourceLocation: {"file":"src/host/index.ts","line":590,"column":3},
     },
     {
       id: '@achasoft/dsh-advanced-sidebar#advancedSidebar/describe',

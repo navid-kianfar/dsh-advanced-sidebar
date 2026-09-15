@@ -278,8 +278,8 @@ export class AdvancedSidebarService extends TypertRemoteService {
       settings,
       deletion: {
         canPurge: deletion.canPurge,
-        // A composition asking to purge on a backend that cannot is reported as `archive`, so the
-        // confirmation dialog never promises a removal that will not happen.
+        // A composition asking to purge on a Host that cannot is reported as `archive`, with the
+        // reason beside it, so the confirmation dialog never promises a removal that will not happen.
         mode: settings.deleteMode === 'purge' && deletion.canPurge ? 'purge' : 'archive',
         ...deletion.reason === undefined ? {} : { reason: deletion.reason },
       },
@@ -583,14 +583,13 @@ export class AdvancedSidebarService extends TypertRemoteService {
   }
 
   /**
-   * Delete one session: archive it, and remove its durable artifact when the mode and Host allow.
+   * Delete one session: archive it, and report plainly that a configured purge did not happen.
    * @param request - the session to delete.
-   * @param signal - gateway-supplied cancellation for the persistence listing.
    * @returns what was actually done, or a classified failure.
    */
   @Remote('deleteSession')
-  deleteSession(request: DeleteSessionRequest, signal: AbortSignal): Promise<DeleteSessionResult> {
-    return this.deleter.delete(request, signal)
+  deleteSession(request: DeleteSessionRequest): Promise<DeleteSessionResult> {
+    return this.deleter.delete(request)
   }
 
   /* ------------------------------------------------------------------------------------------- */

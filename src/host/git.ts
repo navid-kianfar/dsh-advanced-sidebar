@@ -36,6 +36,53 @@ const MISSING_BINARY_EXIT = 127
 const DEFAULT_REMOTE = 'origin'
 
 /**
+ * Configuration every invocation carries, ahead of the subcommand.
+ *
+ * `core.fsmonitor` names an executable git runs whenever it refreshes the index — which `status`,
+ * `diff`, `add` and `commit` all do — and it is read from the repository's own `.git/config`. A
+ * workspace whose config was written by someone else (an unpacked archive, a shared directory) would
+ * otherwise run their program the moment the Changes panel opened. The monitor is only a speed-up, so
+ * turning it off costs a slower status on a very large repository and nothing else. `-c` on the command
+ * line outranks every config file, and git passes it on to the child gits it starts (submodules).
+ */
+const INVOCATION_CONFIG = ['-c', 'core.fsmonitor=false'] as const
+
+/**
+ * Flags every `git diff` carries, so a patch is git's own rendering and never a configured program's.
+ *
+ * `--no-ext-diff` refuses `diff.external` and per-attribute `diff.<driver>.command`; `--no-textconv`
+ * refuses `diff.<driver>.textconv`. Both name executables from repository config and attributes, and
+ * both would otherwise run on a reading nobody asked to be a command.
+ */
+const DIFF_SAFETY_ARGS = ['--no-ext-diff', '--no-textconv'] as const
+
+/**
+ * Config keys that name a content filter's executable.
+ *
+ * `filter.<driver>.clean` (and the long-running `process` protocol) run when git hashes a working-tree
+ * file — which `git status` does for every file whose stat data changed. A driver is attached by
+ * `.gitattributes`, which a repository ships, and defined in config, which is where the executable
+ * comes from; `smudge` runs only on checkout, which no reading here performs.
+ */
+const FILTER_EXECUTABLE_KEYS = String.raw`^filter\..*\.(clean|process)$`
+
+/** The key shape one filter listing line carries, split into its driver name and its variable. */
+const FILTER_KEY = /^filter\.(.+)\.(clean|process)$/u
+
+/**
+ * Config scopes whose filter programs a reading may run.
+ *
+ * `system` and `global` are files the operator (or their administrator) wrote, and they are where
+ * `git lfs install` puts its filter, so neutralizing them would turn every LFS file into a phantom
+ * change. `local` and `worktree` live inside the repository's own `.git`, which is exactly the
+ * config a workspace can arrive with.
+ */
+const TRUSTED_CONFIG_SCOPES = new Set(['system', 'global'])
+
+/** `git config --get-regexp` exits 1 to mean "no key matched", which is an ordinary answer. */
+const CONFIG_NO_MATCH_EXIT = 1
+
+/**
  * What the model is told a commit message is, when the settings section supplies no prompt of its
  * own.
  *
@@ -101,6 +148,46 @@ interface Repository {
   readonly root: string
   /** Requested directory relative to {@link root}, POSIX, empty at the root itself. */
   readonly prefix: string
+  /**
+   * `-c` pairs that switch off every content filter the repository's own config defines, for the
+   * readings; see {@link FILTER_EXECUTABLE_KEYS}. Empty when it defines none.
+   */
+  readonly readingConfig: readonly string[]
+}
+
+/**
+ * The `-c` overrides that disarm the untrusted filter programs one config listing names.
+ *
+ * An empty value is git's own "no command" for a filter (`convert.c` runs a driver only when its
+ * command is non-empty), so the file is then hashed as its bytes, exactly as with no driver at all.
+ * @param listing - `git config --show-scope --name-only --get-regexp` output, one `scope<TAB>key` per
+ * line; a line with no scope (an older git) is treated as untrusted.
+ * @returns the overrides, or the key git could not be told about safely.
+ */
+export function filterOverrides(listing: string): { readonly config: readonly string[] } | { readonly unsafeKey: string } {
+  const config: string[] = []
+  for (const line of listing.split('\n')) {
+    if (line.trim() === '') continue
+    const tab = line.indexOf('\t')
+    const scope = tab < 0 ? undefined : line.slice(0, tab)
+    const key = tab < 0 ? line : line.slice(tab + 1)
+    if (scope !== undefined && TRUSTED_CONFIG_SCOPES.has(scope)) continue
+    // `-c name=value` splits at the FIRST `=`, so a driver named `a=b` cannot be addressed by it: the
+    // override would name a different key and leave the real one armed. Refusing is the only
+    // answer that does not guess.
+    if (key.includes('=') || FILTER_KEY.exec(key) === null) return { unsafeKey: key }
+    config.push('-c', `${key}=`)
+  }
+  return { config }
+}
+
+/**
+ * Whether a name could be read as an option by a git command it is passed to.
+ * @param name - a branch or remote name taken from repository state.
+ * @returns true when it begins with `-`.
+ */
+function isOptionShaped(name: string): boolean {
+  return name.startsWith('-')
 }
 
 /**
@@ -151,10 +238,12 @@ export class GitReader {
     if ('failure' in prepared) return prepared.failure
     const { repository, workspace } = prepared
 
-    const outcome = await this.git(
-      workspace.value.processPath,
+    const outcome = await this.read(
+      repository,
       ['status', '--porcelain=v2', '--branch', '--untracked-files=all', ...NUL_ARGS],
       signal,
+      undefined,
+      workspace.value.processPath,
     )
     if (outcome.exitCode !== 0) return classify(outcome)
 
@@ -167,7 +256,7 @@ export class GitReader {
     const conflicted = changes.filter(change => change.conflicted)
     return {
       ok: true,
-      write: await this.writeCapability(repository.root, signal),
+      write: await this.writeCapability(repository, signal),
       repositoryRoot: repository.root,
       prefix: repository.prefix,
       ...parsed.branch.branch === undefined ? {} : { branch: parsed.branch.branch },
@@ -200,7 +289,7 @@ export class GitReader {
 
     // `--` and a repository-relative path, never a pattern: a path from the browser must not be
     // able to become an option (`--output=…`) or a pathspec magic word.
-    const common = ['--no-pager', 'diff', '--no-color', '--no-ext-diff']
+    const common = ['--no-pager', 'diff', '--no-color', ...DIFF_SAFETY_ARGS]
     const argv = request.untracked
       // An untracked path has no index entry to compare against, so the empty blob stands in for
       // the left side. `--no-index` makes git compare two paths directly and exit 1 on difference.
@@ -208,7 +297,7 @@ export class GitReader {
       : [...common, ...request.staged ? ['--cached'] : [], '--', request.path]
 
     const max = this.source().gitDiffMaxBytes
-    const outcome = await this.git(repository.root, argv, signal, max)
+    const outcome = await this.read(repository, argv, signal, max)
     // `git diff --no-index` exits 1 to mean "the two files differ", which is the ordinary answer
     // here. It also exits 1 for its own usage errors, and those go to stderr — so an exit 1 is
     // success only when git said nothing on stderr.
@@ -282,7 +371,7 @@ export class GitReader {
     if ('failure' in prepared) return prepared.failure
     const { repository } = prepared
 
-    if ((await this.author(repository.root, signal)) === undefined) {
+    if ((await this.author(repository, signal)) === undefined) {
       return fail(
         'no-identity',
         'git has no user.name and user.email, so it has no author to record;'
@@ -291,7 +380,7 @@ export class GitReader {
     }
     // Amending has something to record even with an empty index, so the guard applies only to an
     // ordinary commit — where git's own refusal is a long paragraph about how to stage things.
-    if (!request.amend && !(await this.hasStaged(repository.root, signal))) {
+    if (!request.amend && !(await this.hasStaged(repository, signal))) {
       return fail('nothing-staged', 'nothing is staged, so there is nothing to commit')
     }
 
@@ -304,7 +393,7 @@ export class GitReader {
     )
     if (outcome.exitCode !== 0) return classify(outcome)
 
-    const described = await this.git(repository.root, ['log', '-1', '--format=%h%n%s'], signal)
+    const described = await this.read(repository, ['log', '-1', '--format=%h%n%s'], signal)
     const [commit, subject] = described.stdout.split('\n')
     const status = await this.status({ workspacePath: request.workspacePath }, signal)
     if (!status.ok) return status
@@ -353,23 +442,17 @@ export class GitReader {
     // The remote half of `origin/main`, so a branch tracking something other than `origin` is
     // published to the remote it already follows rather than to a guess.
     const remote = upstream === undefined
-      ? await this.defaultRemote(repository.root, signal)
+      ? await this.defaultRemote(repository, signal)
       : (upstream.split('/')[0] ?? DEFAULT_REMOTE)
     if (remote === undefined) {
       return fail('no-upstream', 'this repository has no remote to push to')
     }
+    const argv = upstream === undefined
+      ? await this.publishArgv(repository, remote, branch, signal)
+      : { argv: ['push'] }
+    if ('failure' in argv) return argv.failure
 
-    const outcome = await this.git(
-      repository.root,
-      upstream === undefined
-        // `--` is not accepted here, so the branch is passed as a bare argument; it comes from
-        // git's own status reading rather than from the browser, and is never caller text.
-        ? ['push', '--set-upstream', remote, branch]
-        : ['push'],
-      signal,
-      undefined,
-      settings.gitPushTimeoutMs,
-    )
+    const outcome = await this.git(repository.root, argv.argv, signal, undefined, settings.gitPushTimeoutMs)
     if (outcome.exitCode !== 0) return classify(outcome)
 
     const status = await this.status({ workspacePath: request.workspacePath }, signal)
@@ -383,6 +466,70 @@ export class GitReader {
       // git reports a push on stderr even when it succeeds; that text is the receipt.
       notes: `${outcome.stdout}\n${outcome.stderr}`.trim(),
     }
+  }
+
+  /**
+   * The arguments that publish one branch to one remote and record it as the upstream.
+   *
+   * Both names come from repository state, not from the browser — and repository state is not
+   * trusted either. A HEAD of `refs/heads/--receive-pack=/tmp/x` is a valid ref (`check-ref-format`
+   * accepts it) that `git status` reports as the branch `--receive-pack=/tmp/x`; handed to
+   * `git push` as a bare argument, git parsed it as the option and ran `/tmp/x` as the remote's
+   * receive-pack. So three independent things stand in the way:
+   *
+   * 1. Both names are refused outright when they begin with `-`.
+   * 2. The branch must pass `git check-ref-format --branch`, which is git's own branch-name grammar
+   *    (it rejects a leading `-`, `..`, control characters, `@{`) and must echo back unchanged, so a
+   *    `@{-1}` shorthand cannot be expanded into some other branch. The remote must make a valid
+   *    remote-tracking ref, which is how git itself validates a remote name.
+   * 3. The push names the refs after `--`, where `git push` (parse-options) stops reading options,
+   *    and as a fully qualified `refs/heads/<b>:refs/heads/<b>` refspec, which also cannot be read as
+   *    a shorter ref with the same name on the remote. `--set-upstream` records the same tracking
+   *    branch it records for the short spelling.
+   * @param repository - the resolved repository.
+   * @param remote - the remote to publish to, from `git remote`.
+   * @param branch - the current branch, from `git status`.
+   * @param signal - cancellation for the validation invocations.
+   * @returns the push arguments, or the failure to return.
+   */
+  private async publishArgv(
+    repository: Repository, remote: string, branch: string, signal?: AbortSignal,
+  ): Promise<{ argv: readonly string[] } | { failure: GitFailure }> {
+    if (isOptionShaped(branch) || !(await this.isValidBranchName(repository, branch, signal))) {
+      return { failure: fail('git-failed', `refusing to publish: ${JSON.stringify(branch)} is not a valid branch name`) }
+    }
+    if (isOptionShaped(remote) || !(await this.isValidRemoteName(repository, remote, signal))) {
+      return { failure: fail('git-failed', `refusing to publish: ${JSON.stringify(remote)} is not a valid remote name`) }
+    }
+    const ref = `refs/heads/${branch}`
+    return { argv: ['push', '--set-upstream', '--', remote, `${ref}:${ref}`] }
+  }
+
+  /**
+   * Whether git accepts a name as a branch name, spelled exactly as given.
+   * @param repository - the resolved repository.
+   * @param branch - the name, already known not to begin with `-`.
+   * @param signal - cancellation for the invocation.
+   * @returns true when `check-ref-format --branch` accepts it and echoes it back unchanged.
+   */
+  private async isValidBranchName(repository: Repository, branch: string, signal?: AbortSignal): Promise<boolean> {
+    // `--branch` consumes the next argument as the name whatever it looks like, and the leading `-`
+    // was refused before this runs.
+    const outcome = await this.read(repository, ['check-ref-format', '--branch', branch], signal)
+    return outcome.exitCode === 0 && outcome.stdout.replace(/\n$/u, '') === branch
+  }
+
+  /**
+   * Whether git accepts a name as a remote name.
+   * @param repository - the resolved repository.
+   * @param remote - the name, already known not to begin with `-`.
+   * @param signal - cancellation for the invocation.
+   * @returns true when `refs/remotes/<remote>/HEAD` is a well-formed ref, git's own remote-name rule.
+   */
+  private async isValidRemoteName(repository: Repository, remote: string, signal?: AbortSignal): Promise<boolean> {
+    // A fully qualified refname begins with `refs/`, so this argument can never read as an option.
+    const outcome = await this.read(repository, ['check-ref-format', `refs/remotes/${remote}/HEAD`], signal)
+    return outcome.exitCode === 0
   }
 
   /**
@@ -411,7 +558,7 @@ export class GitReader {
     if ('failure' in prepared) return prepared.failure
     const { repository } = prepared
 
-    const patch = await this.stagedPatch(repository.root, request.amend, signal)
+    const patch = await this.stagedPatch(repository, request.amend, signal)
     if ('failure' in patch) return patch.failure
     if (patch.text.trim() === '') {
       return fail('nothing-staged', 'nothing is staged, so there is nothing to describe')
@@ -446,22 +593,24 @@ export class GitReader {
 
   /**
    * The patch a drafted message describes, bounded so a large change cannot become a large request.
-   * @param root - absolute repository root.
+   * @param repository - the resolved repository.
    * @param amend - describe the previous commit's content as well as the index.
    * @param signal - cancellation for the invocations.
    * @returns the patch and whether it was cut, or the failure to return.
    */
   private async stagedPatch(
-    root: string, amend: boolean, signal?: AbortSignal,
+    repository: Repository, amend: boolean, signal?: AbortSignal,
   ): Promise<{ text: string; truncated: boolean } | { failure: GitFailure }> {
     const settings = this.source()
     // An amend replaces the previous commit, so what it will contain is the index measured against
     // that commit's PARENT. A root commit has no parent, and its own index is the whole answer.
-    const base = amend && await this.hasParent(root, signal) ? ['HEAD~1'] : []
-    const stat = await this.git(root, ['diff', '--cached', '--stat', ...base], signal)
+    const base = amend && await this.hasParent(repository, signal) ? ['HEAD~1'] : []
+    const stat = await this.read(repository, ['diff', ...DIFF_SAFETY_ARGS, '--cached', '--stat', ...base], signal)
     if (stat.exitCode !== 0) return { failure: classify(stat) }
     const cap = settings.commitMessageMaxBytes
-    const patch = await this.git(root, ['diff', '--cached', '--no-color', ...base], signal, cap)
+    const patch = await this.read(
+      repository, ['diff', ...DIFF_SAFETY_ARGS, '--cached', '--no-color', ...base], signal, cap,
+    )
     if (patch.exitCode !== 0) return { failure: classify(patch) }
     const truncated = patch.stdoutLossy || patch.stdout.length >= cap
     return {
@@ -477,23 +626,23 @@ export class GitReader {
 
   /**
    * Whether HEAD has a parent commit.
-   * @param cwd - absolute repository root.
+   * @param repository - the resolved repository.
    * @param signal - cancellation for the invocation.
    * @returns true when `HEAD~1` resolves.
    */
-  private async hasParent(cwd: string, signal?: AbortSignal): Promise<boolean> {
-    const outcome = await this.git(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD~1'], signal)
+  private async hasParent(repository: Repository, signal?: AbortSignal): Promise<boolean> {
+    const outcome = await this.read(repository, ['rev-parse', '--verify', '--quiet', 'HEAD~1'], signal)
     return outcome.exitCode === 0
   }
 
   /**
    * The remote an unpublished branch would be published to.
-   * @param cwd - absolute repository root.
+   * @param repository - the resolved repository.
    * @param signal - cancellation for the invocation.
    * @returns `origin` when it exists, else the first remote, else undefined.
    */
-  private async defaultRemote(cwd: string, signal?: AbortSignal): Promise<string | undefined> {
-    const outcome = await this.git(cwd, ['remote'], signal)
+  private async defaultRemote(repository: Repository, signal?: AbortSignal): Promise<string | undefined> {
+    const outcome = await this.read(repository, ['remote'], signal)
     if (outcome.exitCode !== 0) return undefined
     const remotes = outcome.stdout.split('\n').map(line => line.trim()).filter(line => line !== '')
     return remotes.includes(DEFAULT_REMOTE) ? DEFAULT_REMOTE : remotes[0]
@@ -557,15 +706,15 @@ export class GitReader {
 
   /**
    * The author `git commit` would record.
-   * @param cwd - the repository root.
+   * @param repository - the resolved repository.
    * @param signal - cancellation for the invocation.
    * @returns `Name <email>`, or undefined when git has no identity configured.
    */
-  private async author(cwd: string, signal?: AbortSignal): Promise<string | undefined> {
+  private async author(repository: Repository, signal?: AbortSignal): Promise<string | undefined> {
     // `var GIT_AUTHOR_IDENT` is git's own answer to "who would this commit be by", and it fails
     // exactly when a commit would — rather than checking two config keys and guessing at the rules
     // that combine them.
-    const outcome = await this.git(cwd, ['var', 'GIT_AUTHOR_IDENT'], signal)
+    const outcome = await this.read(repository, ['var', 'GIT_AUTHOR_IDENT'], signal)
     if (outcome.exitCode !== 0) return undefined
     // `Name <email> 1700000000 +0000` — the timestamp is git's, not the identity.
     const ident = outcome.stdout.trim()
@@ -575,25 +724,25 @@ export class GitReader {
 
   /**
    * Whether the index differs from HEAD.
-   * @param cwd - the repository root.
+   * @param repository - the resolved repository.
    * @param signal - cancellation for the invocation.
    * @returns true when a commit would record something.
    */
-  private async hasStaged(cwd: string, signal?: AbortSignal): Promise<boolean> {
+  private async hasStaged(repository: Repository, signal?: AbortSignal): Promise<boolean> {
     // `diff --cached --quiet` exits 1 when there IS a difference, which is the whole test. On an
     // unborn branch there is no HEAD to compare against, and git exits non-zero there too — which
     // is the right answer, because the first commit records whatever is in the index.
-    const outcome = await this.git(cwd, ['diff', '--cached', '--quiet'], signal)
+    const outcome = await this.read(repository, ['diff', ...DIFF_SAFETY_ARGS, '--cached', '--quiet'], signal)
     return outcome.exitCode !== 0
   }
 
   /**
    * Report what the panel may do to this repository.
-   * @param cwd - the repository root.
+   * @param repository - the resolved repository.
    * @param signal - cancellation for the identity lookup.
    * @returns the write capability.
    */
-  private async writeCapability(cwd: string, signal?: AbortSignal): Promise<GitWriteCapability> {
+  private async writeCapability(repository: Repository, signal?: AbortSignal): Promise<GitWriteCapability> {
     const settings = this.source()
     const canStage = settings.allowGitStaging
     // Commit without staging would be a button with no way to fill the index it needs.
@@ -604,7 +753,7 @@ export class GitReader {
       && settings.allowCommitMessageDraft
       && this.ctx.get('llm') !== undefined
       && this.ctx.get('agentDefaultModel') !== undefined
-    const author = canCommit ? await this.author(cwd, signal) : undefined
+    const author = canCommit ? await this.author(repository, signal) : undefined
     return {
       canStage,
       canCommit,
@@ -645,15 +794,82 @@ export class GitReader {
     if (root === undefined || root.trim() === '') {
       return { failure: fail('not-a-repository', `${cwd} is not inside a git repository`) }
     }
-    // `--show-prefix` prints a trailing slash, which no path in the status output carries.
-    return { repository: { root: root.trim(), prefix: (prefix ?? '').trim().replace(/\/$/u, '') } }
+    const readingConfig = await this.untrustedFilterConfig(root.trim(), signal)
+    if ('failure' in readingConfig) return { failure: readingConfig.failure }
+    return {
+      repository: {
+        root: root.trim(),
+        // `--show-prefix` prints a trailing slash, which no path in the status output carries.
+        prefix: (prefix ?? '').trim().replace(/\/$/u, ''),
+        readingConfig: readingConfig.config,
+      },
+    }
   }
 
   /**
-   * Run one git invocation with this plugin's own bounds.
-   * @param cwd - directory to run in.
-   * @param args - arguments after the executable.
+   * The overrides that switch off the content filters a repository's own config defines.
+   *
+   * Listing config runs nothing — `git config` reads files — so this is safe to ask before any
+   * reading. `--show-scope` arrived in git 2.26; an older git refuses the flag, and the listing is
+   * then repeated without it and every filter it names is treated as untrusted, which can only make
+   * a reading more conservative. A listing that fails both ways fails the reading: a status that
+   * cannot prove its filters are disarmed is not run.
+   * @param root - absolute repository root.
+   * @param signal - cancellation for the listing.
+   * @returns the `-c` pairs, or the failure to return.
+   */
+  private async untrustedFilterConfig(
+    root: string, signal?: AbortSignal,
+  ): Promise<{ config: readonly string[] } | { failure: GitFailure }> {
+    const scoped = await this.git(
+      root, ['config', '--show-scope', '--name-only', '--get-regexp', FILTER_EXECUTABLE_KEYS], signal,
+    )
+    const listing = isConfigListing(scoped)
+      ? scoped
+      : await this.git(root, ['config', '--name-only', '--get-regexp', FILTER_EXECUTABLE_KEYS], signal)
+    if (!isConfigListing(listing)) return { failure: classify(listing) }
+    const overrides = filterOverrides(listing.stdout)
+    if ('unsafeKey' in overrides) {
+      return {
+        failure: fail(
+          'git-failed',
+          `refusing to read this repository: its config defines ${JSON.stringify(overrides.unsafeKey)}, a `
+          + 'filter program that cannot be switched off from the command line',
+        ),
+      }
+    }
+    return { config: overrides.config }
+  }
+
+  /**
+   * Run one READING: an invocation the panel makes on its own, which must run no program the
+   * repository's config names.
+   *
+   * On top of {@link git}'s own `core.fsmonitor` override it disarms the repository's content
+   * filters. Writes (`add`, `restore`, `commit`, `push`) deliberately do not go through here: they are
+   * an operator's explicit action, a filter such as LFS is part of what staging correctly means, and a
+   * commit's hooks are a real answer the panel reports.
+   * @param repository - the resolved repository, carrying its filter overrides.
+   * @param args - arguments after the executable and the overrides.
    * @param signal - the caller's cancellation.
+   * @param maxBytes - the caller's own output bound, when it has one.
+   * @param cwd - directory to run in; the repository root unless the reading is relative to the workspace.
+   * @returns the finished command.
+   */
+  private read(
+    repository: Repository, args: readonly string[], signal?: AbortSignal, maxBytes?: number,
+    cwd: string = repository.root,
+  ): Promise<CommandOutcome> {
+    return this.git(cwd, [...repository.readingConfig, ...args], signal, maxBytes)
+  }
+
+  /**
+   * Run one git invocation with this plugin's own bounds and {@link INVOCATION_CONFIG}.
+   * @param cwd - directory to run in.
+   * @param args - arguments after the executable and the invocation config.
+   * @param signal - the caller's cancellation.
+   * @param maxBytes - the caller's own output bound, when it has one.
+   * @param timeoutMs - the caller's own wall-clock bound, when it has one.
    * @returns the finished command.
    */
   private async git(
@@ -671,7 +887,7 @@ export class GitReader {
     }
     const settings = this.source()
     return runCommand(this.ctx, {
-      argv: [executable, ...args],
+      argv: [executable, ...INVOCATION_CONFIG, ...args],
       cwd,
       timeoutMs: timeoutMs ?? settings.gitTimeoutMs,
       // The caller's own bound where it has one, so the collector and the endpoint truncate at the
@@ -716,6 +932,16 @@ export class GitReader {
     }
     return found
   }
+}
+
+/**
+ * Whether a `git config --get-regexp` finished with a usable answer.
+ * @param outcome - the finished listing.
+ * @returns true for a listing (exit 0) or for "nothing matched" (exit 1 with a silent stderr).
+ */
+function isConfigListing(outcome: CommandOutcome): boolean {
+  if (outcome.exitCode === 0) return true
+  return outcome.exitCode === CONFIG_NO_MATCH_EXIT && outcome.stderr.trim() === ''
 }
 
 /**

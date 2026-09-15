@@ -35,7 +35,7 @@ The menu has one seat: the session header's utilities row. It acts on the sessio
 | Background tasks | This session's `ctx.jobs` records, with Stop and the output of a settled one | `ctx.jobs` |
 | Open in ▸ | A second browser window, a configured editor, or the operating system's file manager | `ctx.subprocess` for the editors |
 | Archive | Hides the session; its log and its accounting slot remain | `ctx.workspaceRegistry` |
-| Delete | Archives, and — in `purge` mode — removes the durable session log | `ctx.workspaceRegistry`, `ctx.sessionPersistence` |
+| Delete | Archives the session; `purge` (removing the log) is unavailable on this harness and says so | `ctx.workspaceRegistry` |
 
 An entry whose capability is missing is **disabled with the reason beside it** rather than hidden, so a mistyped `command` or an uninstalled `git` is visible instead of silent. An entry switched off in settings is absent entirely. The entry of the panel currently in the dock carries a check, so choosing it again reads as the toggle it is.
 
@@ -75,6 +75,15 @@ Four things the panel does rather than leaving to git's own error text:
 - The message crosses as one argument to `-m`, so no shell sees it and nothing in it can become an option. A message of `--amend --author=someone` commits that text.
 - The author is read with `git var GIT_AUTHOR_IDENT` — git's own answer to "who would this commit be by" — and shown under the box, so a missing `user.email` is visible *before* the button is pressed.
 - Committing has its own timeout (`gitCommitTimeoutMs`, default 2 minutes) because it runs the repository's `pre-commit` hook, which can far outlast any reading; killing one mid-run leaves a stale `index.lock`. Hooks run, and a hook's stderr comes back verbatim rather than summarized.
+
+A repository's own `.git/config` is not trusted to run programs. Opening the panel would otherwise execute whatever it names, so:
+
+- Every invocation carries `-c core.fsmonitor=false`: the monitor is an executable git runs on each index refresh.
+- Every `git diff` carries `--no-ext-diff --no-textconv`, so no `diff.external`, diff driver, or textconv program renders a patch.
+- Readings (status, diff, log, identity, remote list) switch off the content filters (`filter.<driver>.clean`/`process`) defined in the repository's `local`/`worktree` config with `-c filter.<driver>.clean=`; filters from `global`/`system` config — where `git lfs install` puts its own — still run. A driver whose name `-c` cannot address (it contains `=`) fails the reading rather than running.
+- **Publish** refuses a branch or remote name that starts with `-` or fails git's own grammar (`check-ref-format --branch`, and a valid `refs/remotes/<remote>/…`), and pushes `-- <remote> refs/heads/<b>:refs/heads/<b>`, so a HEAD of `refs/heads/--receive-pack=…` can never be read as an option.
+
+Staging, committing and pushing are an operator's explicit action and keep git's normal behaviour — filters, hooks, signing, transport config — exactly as the same command in a terminal would.
 
 Every write is gated by a setting the **Host** enforces, not just the panel — `allowGitStaging`, `allowGitCommit`, `allowGitPush`, `allowCommitMessageDraft`: switching one off takes the verb away rather than hiding it.
 
@@ -156,19 +165,33 @@ from the GUI's own origin:
 | `/advanced-sidebar/preview-proxy` | prefix | A reverse proxy for **loopback dev servers**: method, headers, body, status, streaming responses (SSE included) and websocket upgrades pass through |
 | `/advanced-sidebar/preview-scratchpad` | exact | Renders a document the panel POSTs, so the scratchpad frame has this origin |
 
-Three refusals keep that power from becoming a hole in the GUI:
+These refusals keep that power from becoming a hole in the GUI:
 
-1. **The proxy only talks to loopback.** `validateProxyTarget` refuses every host that is not a
+1. **Every route answers only the authenticated GUI.** Each route, and the websocket upgrade, calls
+   the Host connection's `requestRejection` first — the same gate `/api`, the Typert websocket and the
+   harness's own open-in-app routes use. It enforces the Host/Origin fence (a loopback or
+   `trustedHosts` authority, no cross-site `Sec-Fetch-Site`, an `Origin` matching the `Host`), which
+   is what defeats DNS rebinding, and then the signed `dsh-auth-*` browser cookie. That cookie is
+   `SameSite=Strict`, so the panel's same-origin `<iframe src>`, its `fetch`, and the frame's own
+   subresources carry it and a page on any other site does not; everything else gets `401`/`403`.
+   A Host whose connection has no such gate mounts **no routes**, and `describe()` says why.
+2. **The proxy only talks to loopback.** `validateProxyTarget` refuses every host that is not a
    loopback literal — `localhost`, `127.0.0.0/8`, `[::1]` — so a model cannot use it to fetch an
    intranet service from the operator's network position. A hostname that merely *resolves* to
    loopback is refused too: deciding that by lookup would make the answer depend on the resolver at
-   request time, which is exactly the case a DNS rebinding attack exploits.
-2. **The proxy only answers the GUI.** A request whose `Origin` is not this server's own authority is
-   refused, so a page the operator happens to be visiting cannot use the GUI as a relay. A request
-   with no `Origin` is a same-site navigation or a subresource, which is what a frame produces.
-3. **A file is only read from inside a workspace.** Every path goes through the same
+   request time, which is exactly the case a DNS rebinding attack exploits. The GUI's `dsh-auth-*`
+   cookie is stripped from forwarded requests and from upstream `Set-Cookie`, so a dev server never
+   holds, or replaces, a harness credential.
+3. **A file is only read from inside a registered workspace.** `?workspace=` is a claim, not a root:
+   the resolved file must also sit inside one of `ctx.workspaceRegistry`'s workspaces, so
+   `?workspace=/` does not make the disk a workspace. A Host with no registry serves no file.
+4. **Containment is the filesystem's.** Every path goes through the same
    `resolveWorkspace`/`resolveInside` containment the Files panel uses, so a symlink that escapes is
    caught by the filesystem's own canonicalization rather than by string arithmetic.
+
+A proxied page is still same-origin with the GUI — that is the point of the proxy — so its scripts
+can call the GUI's API with the operator's session. Only preview a dev server you would run in a
+browser tab signed in to this harness.
 
 Relative assets inside a framed document resolve through an injected `<base>` that points back at
 the file route, so `./app.js` beside `index.html` loads. That works through a query-string base
@@ -260,12 +283,10 @@ The list is filtered in the browser by a text filter, a status `Select`, and a `
 
 **Open in** distinguishes a directory from a file: a directory is opened, a file is *selected* in its folder (`open -R`, `explorer /select,`). The harness's own `host.openPath` hands a path to its default application, which is the right verb for the first and the wrong one for the second.
 
-**Delete** is assembled, because no harness capability deletes a session — persistence is append-only and exposes no delete verb, and the workspace registry can only archive. So Delete is honest about which half it managed:
+**Delete** archives, because no harness capability deletes a session — the workspace registry can only archive, and the published `SessionPersistence` contract (`create`, `open`, `flush`, `stat`, `list`) has no removal verb. So Delete is honest about what it did:
 
 - `archive` hides the session and keeps its log.
-- `purge` also removes the persistence backend's per-session artifact. Nothing undoes that, it requires `confirmDelete`, and it **never touches a live session** — a running turn would keep appending to a file that no longer exists, so the archive commits and the reason comes back with it. A backend that keeps no per-session artifact (SQLite) reports `archive` from `describe()`, so the confirmation never promises a removal that will not happen.
-
-A live session is detected through the **agent registry**, not the session store: an agent is what runs a turn, and a cold session the store merely retains is not being written to.
+- `purge` is **unavailable on this harness (0.1.5-rc.2)**. The JSONL backend keeps a session as a directory of generation files behind a `session.lock` write lease and in-process caches, and the workspace registry indexes its header; removing those files from outside the backend would bypass the lease and leave stale caches answering for a log that is gone. `describe()` reports `canPurge: false` with that reason, the settings card refuses to select `purge`, and a composition that still configures it gets an archive whose result carries `purgeSkippedReason` every time — never a silent downgrade.
 
 ## Settings
 

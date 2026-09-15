@@ -9,19 +9,30 @@
  * `/advanced-sidebar/preview-proxy?url=…` makes the frame same-origin with the page that hosts it,
  * so the panel's driver can inspect and drive it directly.
  *
- * Three deliberate refusals keep that power from becoming a hole in the GUI:
+ * Four deliberate refusals keep that power from becoming a hole in the GUI:
  *
- * 1. **The proxy only talks to loopback.** `validateProxyTarget` refuses every host that is not a
+ * 1. **Every route answers only the authenticated GUI.** Each HTTP route and the websocket upgrade
+ *    call the Host connection's `requestRejection` before anything else — the same gate `/api`, the
+ *    Typert websocket and the harness's own open-in-app routes use. It applies the Host/Origin fence
+ *    (a loopback or configured `trustedHosts` authority, no `Sec-Fetch-Site: cross-site`, an `Origin`
+ *    that matches the `Host` when present — which is what defeats DNS rebinding) and then verifies the
+ *    signed, authority-bound `dsh-auth-*` browser cookie. That cookie is `SameSite=Strict`, so the
+ *    panel's same-origin `<iframe src>`, its `fetch`, and the frame's own subresources all carry it,
+ *    while a page on any other site cannot. A Host whose connection exposes no such gate gets **no
+ *    routes at all**: these routes read files and relay to local ports, and an ungated copy of them is
+ *    a file server for every process and web page that can reach the port.
+ * 2. **The proxy only talks to loopback.** `validateProxyTarget` refuses every host that is not a
  *    loopback literal, so this cannot fetch an intranet service from the operator's network
- *    position. A URL that merely resolves to loopback is refused too — see that function.
- * 2. **The proxy only answers the GUI.** A request carrying an `Origin` header that is not this
- *    server's own origin is refused, so a page the operator happens to be visiting cannot use the
- *    GUI as a relay. Requests with no `Origin` at all are same-site navigations and subresources,
- *    which are exactly what the frame produces.
- * 3. **A file is only ever read from inside a workspace.** Every path goes through
+ *    position. A URL that merely resolves to loopback is refused too — see that function. The GUI's
+ *    own `dsh-auth-*` cookie is removed from what is forwarded, so a dev server never receives a
+ *    credential for the harness, and cannot overwrite it either.
+ * 3. **A file is only ever read from inside a registered workspace.** The request names a workspace,
+ *    but that name is a claim: the file must also sit inside one of the workspaces the harness's own
+ *    `workspaceRegistry` holds, or it is refused. Without that, `?workspace=/` made the whole disk a
+ *    workspace. A Host with no registry serves no file.
+ * 4. **Containment is the filesystem's, not string arithmetic.** Every path goes through
  *    `resolveWorkspace`/`resolveInside`, the same containment the Files panel uses, and a symlink
- *    that escapes is caught by the filesystem's own canonicalization rather than by string
- *    arithmetic.
+ *    that escapes is caught by the filesystem's own canonicalization.
  *
  * Nothing here is cached. A dev server's own asset pipeline already handles its own caching; a
  * workspace file is exactly the thing an operator edits and expects to see change, so the route
@@ -37,12 +48,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Context } from '@deepseek-ai/cordis'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
-// Type-only: the ctx.webServer Context merge and the route registration shape.
-import type {} from '@deepseek-ai/dsh-host-webserver'
+// Type-only: the ctx.workspaceRegistry Context merge.
+import type {} from '@deepseek-ai/dsh-workspace'
 import { resolveInside, resolveWorkspace, type ResolvedPath } from './paths.ts'
 import {
   FILE_ROUTE, PROXY_ROUTE, SCRATCHPAD_ROUTE, classifyFile, contentTypeOf, decodeText, encodeQuery,
-  fileUrl, injectBase, isLoopbackHost, isTextual, proxyUrlFor, validateProxyTarget,
+  fileUrl, injectBase, isTextual, proxyUrlFor, validateProxyTarget,
 } from './preview-content.ts'
 
 // Re-exported so this module stays the one place a caller reaches the preview surface through; the
@@ -125,6 +136,71 @@ const HOP_BY_HOP = new Set([
  */
 const REWRITTEN_REQUEST_HEADERS = new Set(['host', 'origin', 'referer', 'accept-encoding', 'connection'])
 
+/**
+ * Name prefix of the harness's browser-session cookie (`dsh-client-connection`, `COOKIE_PREFIX`).
+ *
+ * The full name is this prefix plus a digest of the authority, so the prefix is the stable part. A
+ * request forwarded to a dev server must not carry it — whatever listens on a loopback port would
+ * otherwise hold a credential that authenticates it to the whole harness API — and a dev server's
+ * `Set-Cookie` must not be able to replace it on the GUI's origin.
+ */
+const HOST_AUTH_COOKIE_PREFIX = 'dsh-auth-'
+
+/** The hop-by-hop headers a websocket tunnel must still forward, because they are the handshake. */
+const UPGRADE_HANDSHAKE_HEADERS = new Set(['connection', 'upgrade'])
+
+/** The status a refused request is answered with; the gate never returns anything else. */
+type Rejection = 401 | 403
+
+/**
+ * The Host connection's request gate, as the shipped harness exposes it.
+ *
+ * Read structurally rather than through the connection's published types: its Host half is not part
+ * of the browser-side declaration this package builds against, which is also how the harness's own
+ * open-in-app plugin and `dsh-tasks-manager` reach it.
+ */
+interface RequestGate {
+  /**
+   * Apply the Host/Origin fence, then browser authentication.
+   * @param request - the incoming request or upgrade.
+   * @returns the status to refuse with, or undefined when the request may proceed.
+   */
+  readonly requestRejection?: (request: IncomingMessage) => Rejection | undefined
+}
+
+/** One HTTP route registration, as `ctx.webServer.register` takes it. */
+interface RouteRegistration {
+  readonly kind: 'exact' | 'prefix'
+  readonly path: string
+  readonly handler: (req: IncomingMessage, res: ServerResponse) => Promise<void> | void
+}
+
+/** One upgrade route registration, as `ctx.webServer.registerUpgrade` takes it. */
+interface UpgradeRegistration {
+  readonly path: string
+  readonly handler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void
+}
+
+/**
+ * The part of the Host web server this module registers on.
+ *
+ * Structural for the same reason as {@link RequestGate}: the `dsh-host-webserver` Context merge does
+ * not resolve from this package's build types, and a local shape states exactly what is relied on.
+ */
+interface WebServerSeat {
+  readonly register: (route: RouteRegistration) => () => void
+  readonly registerUpgrade: (route: UpgradeRegistration) => () => void
+}
+
+/**
+ * Whether the routes are mounted, and if not, why.
+ *
+ * `absent` until the Host composes both a web server and a connection (a headless Host never does);
+ * `ungated` when it composes a connection that has no request gate, which is refused rather than
+ * served open.
+ */
+type RouteState = 'absent' | 'mounted' | 'ungated'
+
 /** One in-flight proxied request, so a dispose can abort it. */
 interface Upstream {
   /** Aborts the request and destroys the socket. */
@@ -153,6 +229,9 @@ export class PreviewSurface {
 
   private closed = false
 
+  /** Whether the routes are registered; see {@link RouteState}. */
+  private routes: RouteState = 'absent'
+
   /**
    * @param ctx - Host context carrying the optional filesystem capability.
    * @param source - reads the current settings section; called per request.
@@ -161,19 +240,32 @@ export class PreviewSurface {
 
   /**
    * What this surface is, for `describe()`.
-   * @returns the route paths and whether a web server is mounted at all.
+   * @returns the route paths and whether the routes are actually mounted.
    */
   info(): PreviewSurfaceInfo {
-    if (this.ctx.get('webServer') === undefined) {
-      return {
-        fileRoute: FILE_ROUTE,
-        proxyRoute: PROXY_ROUTE,
-        available: false,
-        reason: 'no web server capability is mounted: a workspace file has no same-origin URL to be '
-          + 'framed from, and a dev server stays cross-origin',
-      }
+    switch (this.routes) {
+      case 'mounted':
+        return { fileRoute: FILE_ROUTE, proxyRoute: PROXY_ROUTE, available: true }
+      case 'absent':
+        return {
+          fileRoute: FILE_ROUTE,
+          proxyRoute: PROXY_ROUTE,
+          available: false,
+          reason: 'no web server capability is mounted: a workspace file has no same-origin URL to be '
+            + 'framed from, and a dev server stays cross-origin',
+        }
+      case 'ungated':
+        return {
+          fileRoute: FILE_ROUTE,
+          proxyRoute: PROXY_ROUTE,
+          available: false,
+          reason: 'this Host\'s connection exposes no request gate (requestRejection), so the preview '
+            + 'routes are not mounted: without it they would serve workspace files to anything that '
+            + 'can reach the port',
+        }
+      default:
+        throw new TypeError(`advanced-sidebar: unexpected preview route state ${JSON.stringify(this.routes satisfies never)}`)
     }
-    return { fileRoute: FILE_ROUTE, proxyRoute: PROXY_ROUTE, available: true }
   }
 
   /**
@@ -196,37 +288,54 @@ export class PreviewSurface {
   }
 
   /**
-   * Register every route with the mounted web server.
+   * Register every route with the mounted web server, each behind the connection's request gate.
    *
-   * Registration goes through `ctx.inject(['webServer'], …)` rather than a constructor read: a
-   * headless deployment composes no web server, and the inject face simply never runs, leaving the
-   * rest of the plugin working.
+   * Registration goes through `ctx.inject(['connection', 'webServer'], …)` rather than a constructor
+   * read: a headless deployment composes neither, and the inject face simply never runs, leaving the
+   * rest of the plugin working. The connection is a hard requirement rather than an optional extra —
+   * it is the only thing that can tell the GUI's own browser from any other client of the port — so a
+   * connection without `requestRejection` mounts nothing and says so through {@link info}.
    */
   install(): void {
-    this.ctx.inject(['webServer'], (webCtx) => {
-      const disposeFile = webCtx.webServer.register({
+    this.ctx.inject(['connection', 'webServer'], (routeCtx) => {
+      const connection = Reflect.get(routeCtx, 'connection') as RequestGate | undefined
+      const webServer = Reflect.get(routeCtx, 'webServer') as WebServerSeat
+      const requestRejection = connection?.requestRejection
+      if (typeof requestRejection !== 'function') {
+        this.routes = 'ungated'
+        return () => { this.routes = 'absent' }
+      }
+      const gate = (req: IncomingMessage): Rejection | undefined => requestRejection.call(connection, req)
+      const disposeFile = webServer.register({
         kind: 'exact',
         path: FILE_ROUTE,
-        handler: (req, res) => this.handleFile(req, res),
+        handler: (req, res) => (refuseHttp(gate, req, res) ? undefined : this.handleFile(req, res)),
       })
-      const disposeScratch = webCtx.webServer.register({
+      const disposeScratch = webServer.register({
         kind: 'exact',
         path: SCRATCHPAD_ROUTE,
-        handler: (req, res) => this.handleScratchpad(req, res),
+        handler: (req, res) => (refuseHttp(gate, req, res) ? undefined : this.handleScratchpad(req, res)),
       })
-      const disposeProxy = webCtx.webServer.register({
+      const disposeProxy = webServer.register({
         kind: 'prefix',
         path: PROXY_ROUTE,
-        handler: (req, res) => this.handleProxy(req, res),
+        handler: (req, res) => (refuseHttp(gate, req, res) ? undefined : this.handleProxy(req, res)),
       })
       // The upgrade seat is exact-path only, and a websocket client connects at the root of
       // whatever prefix it was given, so this route catches the common case. A dev server that
       // negotiates on a subpath is documented as unsupported rather than silently half-proxied.
-      const disposeUpgrade = webCtx.webServer.registerUpgrade({
+      const disposeUpgrade = webServer.registerUpgrade({
         path: PROXY_ROUTE,
-        handler: (req, socket, head) => this.handleUpgrade(req, socket, head),
+        handler: (req, socket, head) => {
+          // Refused before any upstream socket is opened: a tunnel is a raw pipe, and once it exists
+          // nothing further is checked.
+          if (refuseUpgrade(gate, req, socket)) return
+          this.handleUpgrade(req, socket, head)
+        },
       })
+      this.routes = 'mounted'
       return () => {
+        this.routes = 'absent'
         disposeUpgrade()
         disposeProxy()
         disposeScratch()
@@ -415,11 +524,6 @@ export class PreviewSurface {
    * @param res - the response the handler owns.
    */
   private async handleProxy(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const refuse = this.refusedOrigin(req)
-    if (refuse !== undefined) {
-      send(res, 403, 'text/plain; charset=utf-8', refuse)
-      return
-    }
     if (this.closed) {
       send(res, 503, 'text/plain; charset=utf-8', 'the preview surface is unloading')
       return
@@ -479,11 +583,6 @@ export class PreviewSurface {
    * @param head - bytes the parser already read past the request line.
    */
   private handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
-    const refuse = this.refusedOrigin(req)
-    if (refuse !== undefined) {
-      socket.end('HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n')
-      return
-    }
     const url = new URL(req.url ?? '/', 'http://x')
     const explicit = url.searchParams.get('url')
     const suffix = suffixOf(url.pathname)
@@ -508,7 +607,16 @@ export class PreviewSurface {
       const headers = { ...req.headers, host: upstreamUrl.host }
       const lines = [`${req.method ?? 'GET'} ${upstreamUrl.pathname}${upstreamUrl.search} HTTP/1.1`]
       for (const [name, value] of Object.entries(headers)) {
-        if (value === undefined || HOP_BY_HOP.has(name.toLowerCase())) continue
+        if (value === undefined) continue
+        const lowered = name.toLowerCase()
+        if (lowered === 'cookie') {
+          const kept = withoutHostAuthCookies(value)
+          if (kept !== undefined) lines.push(`cookie: ${kept}`)
+          continue
+        }
+        // `upgrade` and `connection` are hop-by-hop in general but ARE the handshake on this path:
+        // dropping them hands the upstream a plain GET, which no websocket server upgrades.
+        if (HOP_BY_HOP.has(lowered) && !UPGRADE_HANDSHAKE_HEADERS.has(lowered)) continue
         if (Array.isArray(value)) for (const one of value) lines.push(`${name}: ${one}`)
         else lines.push(`${name}: ${value}`)
       }
@@ -531,6 +639,11 @@ export class PreviewSurface {
       if (value === undefined) continue
       const lowered = name.toLowerCase()
       if (HOP_BY_HOP.has(lowered) || REWRITTEN_REQUEST_HEADERS.has(lowered)) continue
+      if (lowered === 'cookie') {
+        const kept = withoutHostAuthCookies(value)
+        if (kept !== undefined) headers[name] = kept
+        continue
+      }
       headers[name] = value
     }
     headers.host = upstreamUrl.host
@@ -573,6 +686,11 @@ export class PreviewSurface {
       }
       for (const [name, value] of Object.entries(upstreamRes.headers)) {
         if (value === undefined || HOP_BY_HOP.has(name.toLowerCase())) continue
+        if (name.toLowerCase() === 'set-cookie') {
+          const kept = withoutHostAuthSetCookies(value)
+          if (kept.length > 0) res.setHeader(name, kept)
+          continue
+        }
         if (name.toLowerCase() === 'content-type' && isTextual(String(value))) {
           res.setHeader(name, String(value).includes('charset') ? String(value) : `${String(value)}; charset=utf-8`)
           continue
@@ -631,6 +749,8 @@ export class PreviewSurface {
       }
     }
     if (workspacePath === undefined) {
+      const refused = await this.outsideRegisteredWorkspaces(workspace.value.target, path, signal)
+      if (refused !== undefined) return { ok: false, failure: refused }
       return { ok: true, workspace: workspace.value, target: workspace.value.target, display: path }
     }
     const inside = await resolveInside(this.ctx, workspace.value, path, signal)
@@ -644,7 +764,52 @@ export class PreviewSurface {
         },
       }
     }
+    const refused = await this.outsideRegisteredWorkspaces(inside.value.target, path, signal)
+    if (refused !== undefined) return { ok: false, failure: refused }
     return { ok: true, workspace: workspace.value, target: inside.value.target, display: inside.value.processPath }
+  }
+
+  /**
+   * Refuse a target that sits inside none of the harness's registered workspaces.
+   *
+   * The workspace a request names is only the root its relative paths hang from; it is not evidence
+   * that the directory is one the operator opened. `?workspace=/` would otherwise make the whole disk
+   * a workspace, so the canonical target is checked against the registry's own canonical paths — the
+   * list the sidebar shows, and nothing a request can add to. A subdirectory of a registered
+   * workspace passes, because the file is still inside what the operator opened.
+   *
+   * Each registered path is resolved through the same filesystem as the target, so a symlinked
+   * workspace compares as its real directory on both sides. A registered directory that no longer
+   * resolves (deleted, unmounted) simply contains nothing.
+   * @param target - the canonical target the request resolved to.
+   * @param path - the path as asked, for the refusal message.
+   * @param signal - cancellation for the resolutions.
+   * @returns the refusal, or undefined when a registered workspace contains the target.
+   */
+  private async outsideRegisteredWorkspaces(
+    target: FsTarget, path: string, signal?: AbortSignal,
+  ): Promise<{ ok: false; code: 'no-filesystem' | 'path-denied'; message: string } | undefined> {
+    const fs = this.ctx.get('fs')
+    /* v8 ignore next 3 -- the caller resolved the target through the same service moments earlier. */
+    if (fs === undefined) {
+      return { ok: false, code: 'no-filesystem', message: 'filesystem capability withdrawn mid-request' }
+    }
+    const registry = this.ctx.get('workspaceRegistry')
+    if (registry === undefined) {
+      return {
+        ok: false,
+        code: 'path-denied',
+        message: 'no workspace registry is mounted, so no preview file can be proved to belong to a workspace',
+      }
+    }
+    // Annotated locally: the registry's element type does not resolve from this package's build types.
+    const registered: readonly string[] = registry.list().map((workspace: { readonly path: string }) => workspace.path)
+    const roots = await Promise.allSettled(
+      registered.map((root: string) => fs.resolve(root, signal === undefined ? {} : { signal })),
+    )
+    const contained = roots.some(root => root.status === 'fulfilled' && fs.contains(root.value, target))
+    if (contained) return undefined
+    return { ok: false, code: 'path-denied', message: `${path} is outside every registered workspace` }
   }
 
   /**
@@ -766,27 +931,6 @@ export class PreviewSurface {
     if (target === undefined) this.targets.delete(clientId)
     else this.targets.set(clientId, target)
   }
-
-  /**
-   * Refuse a request whose `Origin` is not this server's own.
-   * @param req - the incoming request.
-   * @returns the refusal message, or undefined when the request may proceed.
-   */
-  private refusedOrigin(req: IncomingMessage): string | undefined {
-    const origin = req.headers.origin
-    if (typeof origin !== 'string' || origin === '' || origin === 'null') return undefined
-    const host = req.headers.host
-    if (typeof host !== 'string') return undefined
-    try {
-      // Compared as an authority rather than as a full origin: the deployment may be behind a
-      // reverse proxy whose scheme differs from the one the socket sees, and the authority is what
-      // decides whether this is the GUI's own page.
-      if (new URL(origin).host === host) return undefined
-    } catch {
-      return `${JSON.stringify(origin)} is not an origin this proxy will answer`
-    }
-    return `the preview proxy answers only this GUI's own origin, not ${JSON.stringify(origin)}`
-  }
 }
 
 /**
@@ -823,9 +967,97 @@ function forwardHeaders(res: IncomingMessage): Record<string, string | string[]>
   const headers: Record<string, string | string[]> = {}
   for (const [name, value] of Object.entries(res.headers)) {
     if (value === undefined || HOP_BY_HOP.has(name.toLowerCase()) || name.toLowerCase() === 'content-length') continue
+    if (name.toLowerCase() === 'set-cookie') {
+      const kept = withoutHostAuthSetCookies(value)
+      if (kept.length > 0) headers[name] = [...kept]
+      continue
+    }
     headers[name] = value
   }
   return headers
+}
+
+/**
+ * Answer a refused HTTP request, when the gate refuses it.
+ *
+ * The body is one fixed word: the gate's reasons (which authority, which cookie) are exactly what a
+ * probing client wants, and the GUI's own browser never sees this answer.
+ * @param gate - the connection's request gate.
+ * @param req - the incoming request.
+ * @param res - the response the handler owns.
+ * @returns true when the request was refused and answered.
+ */
+function refuseHttp(
+  gate: (req: IncomingMessage) => Rejection | undefined, req: IncomingMessage, res: ServerResponse,
+): boolean {
+  const rejection = gate(req)
+  if (rejection === undefined) return false
+  send(res, rejection, 'text/plain; charset=utf-8', rejectionText(rejection))
+  return true
+}
+
+/**
+ * Close a refused upgrade with a well-formed HTTP answer, when the gate refuses it.
+ *
+ * Written as a complete response, the way the harness's own Typert websocket refuses one, so a
+ * client sees `401`/`403` rather than a reset it would retry.
+ * @param gate - the connection's request gate.
+ * @param req - the upgrade request.
+ * @param socket - the client socket the handler owns.
+ * @returns true when the upgrade was refused and the socket closed.
+ */
+function refuseUpgrade(
+  gate: (req: IncomingMessage) => Rejection | undefined, req: IncomingMessage, socket: Duplex,
+): boolean {
+  const rejection = gate(req)
+  if (rejection === undefined) return false
+  const body = rejectionText(rejection)
+  socket.end([
+    `HTTP/1.1 ${String(rejection)} ${rejection === 401 ? 'Unauthorized' : 'Forbidden'}`,
+    'connection: close',
+    'content-type: text/plain; charset=utf-8',
+    `content-length: ${String(Buffer.byteLength(body))}`,
+    '',
+    body,
+  ].join('\r\n'))
+  return true
+}
+
+/**
+ * The body a refusal carries.
+ * @param rejection - the gate's status.
+ * @returns the word for it.
+ */
+function rejectionText(rejection: Rejection): string {
+  switch (rejection) {
+    case 401: return 'unauthorized'
+    case 403: return 'forbidden'
+    default: throw new TypeError(`advanced-sidebar: unexpected rejection ${String(rejection satisfies never)}`)
+  }
+}
+
+/**
+ * A `Cookie` request header minus the harness's own browser-session cookie.
+ * @param header - the raw header; Node joins repeated `Cookie` headers into one string.
+ * @returns the remaining pairs, or undefined when nothing remains.
+ */
+export function withoutHostAuthCookies(header: string | readonly string[]): string | undefined {
+  const joined = typeof header === 'string' ? header : header.join('; ')
+  const kept = joined
+    .split(';')
+    .map(pair => pair.trim())
+    .filter(pair => pair !== '' && !pair.startsWith(HOST_AUTH_COOKIE_PREFIX))
+  return kept.length === 0 ? undefined : kept.join('; ')
+}
+
+/**
+ * Upstream `Set-Cookie` values minus any that would replace the harness's own session cookie.
+ * @param header - one value or the list Node collects.
+ * @returns the values a dev server may still set on this origin.
+ */
+function withoutHostAuthSetCookies(header: string | readonly string[]): readonly string[] {
+  const values = typeof header === 'string' ? [header] : header
+  return values.filter(value => !value.trimStart().startsWith(HOST_AUTH_COOKIE_PREFIX))
 }
 
 /** One byte range a request asked for. */

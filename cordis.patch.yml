@@ -37,9 +37,9 @@
         panelWidth: 460
 
         # What Delete does. `archive` hides the session and keeps its log — reversible in principle,
-        # since the durable slot is preserved. `purge` also removes the persistence backend's own
-        # per-session artifact, which nothing undoes; it requires confirmDelete, refuses a live
-        # session, and degrades to `archive` on a backend that keeps no per-session file.
+        # since the durable slot is preserved. `purge` asks for the session log to be removed too,
+        # but the harness (0.1.5-rc.2) has no supported removal verb, so it is unavailable: the
+        # settings card says so, and a Delete under `purge` archives and reports why the log was kept.
         deleteMode: archive
         confirmDelete: true
 
