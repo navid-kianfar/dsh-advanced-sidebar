@@ -1,6 +1,6 @@
 {
   "name": "@achasoft/dsh-advanced-sidebar",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Advanced sidebar operations for the DeepSeek Harness Web Client: git changes, multi-session terminals, a file browser, a dev-server preview, background tasks, Open in, Archive and Delete, in a resizable dock beside the conversation",
   "license": "MIT",
   "type": "module",
