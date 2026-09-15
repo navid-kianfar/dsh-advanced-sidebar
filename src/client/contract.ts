@@ -24,6 +24,7 @@ import type {
   TerminalAckResult, TerminalOpenResult, TerminalReadResult,
 } from '../host/types.ts'
 import type { OperationTarget, PanelController, PanelKind } from './controller.ts'
+import type { LogDownloadBridge } from './log-download.ts'
 import type { AdvancedSidebarKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -56,6 +57,11 @@ export interface MenuInjected {
     sidebar: PanelController
     /** The bound `advanced-sidebar` settings scope, which decides the menu's entries. */
     settings: SettingsScope<AdvancedSidebarSettings>
+    /**
+     * The harness's session-log export, bridged: inactive while its package is absent or its header
+     * button is not being shadowed, which is when the menu offers no Download entry.
+     */
+    logDownload: LogDownloadBridge
   }
   /**
    * Read the Host's capability view so an entry can be disabled with a reason.
@@ -79,6 +85,12 @@ export interface MenuInjected {
   /** Open the Web Client in a second browser window. */
   openWindow: () => void
   /**
+   * Start the harness's session-log export for one session; its progress dialog is the shadowing
+   * entry's, not the menu's.
+   * @param sessionId - the session whose log, sub-sessions and attachments are exported.
+   */
+  downloadLog: (sessionId: string) => void
+  /**
    * Archive one session.
    * @param target - the session to hide.
    * @returns after the registry committed; a failure surfaces as a notice.
@@ -95,6 +107,24 @@ export interface MenuInjected {
 /** Full props of the session-header trigger. */
 export type HeaderMenuProps =
   PropsRuntime<'conversation.session.header.utilities'> & PropsLocale<'advancedSidebar'> & InjectFace<MenuInjected>
+
+/** Everything the entry shadowing the harness's download button needs. */
+export interface LogDownloadSeatInjected {
+  /** Registrant-private reactive sources the renderer binds to `use<Name>` hooks. */
+  hooks: {
+    /** The bridged export state; the dialog renders only while it is active. */
+    logDownload: LogDownloadBridge
+  }
+  /**
+   * Close one session's dialog without cancelling its export.
+   * @param sessionId - the session whose dialog closes.
+   */
+  dismiss: (sessionId: string) => void
+}
+
+/** Full props of the entry shadowing the harness's download button. */
+export type LogDownloadSeatProps =
+  PropsRuntime<'conversation.session.header.utilities'> & PropsLocale<'advancedSidebar'> & InjectFace<LogDownloadSeatInjected>
 
 /** Everything the dock and its confirmation dialog need. */
 export interface PanelHostInjected {

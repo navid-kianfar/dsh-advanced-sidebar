@@ -2,7 +2,8 @@
  * Advanced sidebar plugin, browser half: three registrations over one Host endpoint and one shared
  * piece of state.
  *
- * - `conversation.session.header.utilities` — the menu on the open session.
+ * - `conversation.session.header.utilities` — the menu on the open session, and, in the same row,
+ *   the entry shadowing the harness's own session-log download button, whose verb the menu absorbs.
  * - `shell.overlay` — the resizable dock holding whichever panel is open, plus the Delete
  *   confirmation.
  * - `settings.plugin.item` — the card on the plugin-configuration tab, keyed by the namespace.
@@ -34,18 +35,27 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 // namespace mounts and unmounts with this fiber, and no shipped source names `advancedSidebar`.
 import sidebarRemote from '../../generated/typert.remote-client.js'
 import type { AdvancedSidebarSettings } from '../host/types.ts'
-import { LOCALE_NS, SETTINGS_NS, type MenuInjected, type PanelHostInjected, type SettingsCardInjected } from './contract.ts'
+import {
+  LOCALE_NS, SETTINGS_NS, type LogDownloadSeatInjected, type MenuInjected, type PanelHostInjected,
+  type SettingsCardInjected,
+} from './contract.ts'
 import { PanelController, type OperationTarget } from './controller.ts'
 import { PanelHost } from './PanelHost.tsx'
 import { SettingsCard } from './SettingsCard.tsx'
 import { HeaderMenu } from './Seats.tsx'
+import { LogDownloadDialog } from './LogDownloadDialog.tsx'
+import {
+  asLogDownloadService, LogDownloadBridge, LOG_DOWNLOAD_SEAT_ID, LOG_DOWNLOAD_SERVICE,
+  LOG_DOWNLOAD_SHADOW_PRIORITY, LOG_DOWNLOAD_SLOT, shadowsHarnessSeat,
+} from './log-download.ts'
 import { en, zh } from './locales.ts'
 
 export type { AdvancedSidebarKey } from './locales.ts'
 export type {
-  HeaderMenuProps, MenuInjected, PanelHostInjected, PanelHostProps, SettingsCardInjected,
-  SettingsCardProps, Translate,
+  HeaderMenuProps, LogDownloadSeatInjected, LogDownloadSeatProps, MenuInjected, PanelHostInjected,
+  PanelHostProps, SettingsCardInjected, SettingsCardProps, Translate,
 } from './contract.ts'
+export type { LogDownloadEntry, LogDownloadState, LogDownloadView } from './log-download.ts'
 export type {
   OperationTarget, PanelKind, SidebarState, TerminalGroup, TerminalTab,
 } from './controller.ts'
@@ -85,6 +95,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
  */
 function surface(ctx: ClientContext): void {
   const controller = new PanelController()
+  const logDownload = new LogDownloadBridge()
 
   // Every endpoint returns the carrier's RemoteResult envelope. A transport failure is a different
   // fact from a business failure, so it is thrown rather than folded into the union the Host
@@ -189,7 +200,7 @@ function surface(ctx: ClientContext): void {
   }
 
   const menuInjected = (): MenuInjected => ({
-    hooks: { sidebar: controller, settings: scope },
+    hooks: { sidebar: controller, settings: scope, logDownload },
     describe,
     openPanel: (panel, target) => { controller.open(panel, target) },
     openIn,
@@ -198,6 +209,57 @@ function surface(ctx: ClientContext): void {
     openWindow: () => { window.open(window.location.href, '_blank', 'noopener,noreferrer') },
     archive,
     requestDelete,
+    downloadLog: (sessionId) => {
+      // The entry is offered only while the bridge is active, so a detached answer here means the
+      // package unloaded between the menu opening and the click; a notice beats a silent no-op.
+      if (!logDownload.download(sessionId)) controller.notify('error', ctx.locale.bind(LOCALE_NS)('menu.downloadLog.unavailable'))
+    },
+  })
+
+  /**
+   * Download session log, absorbed from `@deepseek-ai/dsh-session-log-export` (see
+   * `log-download.ts` for the whole rationale).
+   *
+   * Its own child fiber, injecting the harness's `sessionLogDownload` service, because that service
+   * is optional and may arrive after this plugin: Cordis applies the child once the service exists
+   * and disposes it when the service goes, so the menu loads either way, and the shadow and the
+   * bridge exist exactly while there is a controller behind them. The service is then read through
+   * `ctx.get` and narrowed by shape, since its type belongs to a package this one does not depend on.
+   */
+  ctx.plugin({
+    name: 'advanced-sidebar-log-download',
+    inject: ['slots', LOG_DOWNLOAD_SERVICE],
+    apply: (child: ClientContext) => {
+      const service = asLogDownloadService(child.get(LOG_DOWNLOAD_SERVICE))
+      // An incompatible controller: stand aside entirely, leaving the harness's button untouched.
+      if (service === undefined) return
+      child.effect(() => logDownload.attach(service), 'advanced-sidebar: session log export bridge')
+
+      // The menu offers the verb only while this plugin is really hiding the harness's button, so
+      // the registry is re-read on every change to the row rather than assumed once.
+      child.effect(() => {
+        const recheck = (): void => { logDownload.setShadowing(shadowsHarnessSeat(child.slots.entries(LOG_DOWNLOAD_SLOT))) }
+        recheck()
+        const unsubscribe = child.slots.subscribe(LOG_DOWNLOAD_SLOT, recheck)
+        return () => {
+          unsubscribe()
+          logDownload.setShadowing(false)
+        }
+      }, 'advanced-sidebar: session log download seat watch')
+
+      // Same id, one priority ahead: this entry takes the cell and the harness's button stops
+      // rendering. It draws the export dialog the shadowed entry drew, and nothing else.
+      child.slots.inject(LOG_DOWNLOAD_SLOT, () => child.slots.register({
+        name: LOG_DOWNLOAD_SLOT,
+        id: LOG_DOWNLOAD_SEAT_ID,
+        priority: LOG_DOWNLOAD_SHADOW_PRIORITY,
+        locale: LOCALE_NS,
+        inject: (): LogDownloadSeatInjected => ({
+          hooks: { logDownload },
+          dismiss: (sessionId) => { logDownload.dismiss(sessionId) },
+        }),
+      }, LogDownloadDialog))
+    },
   })
 
   ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
